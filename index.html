@@ -1568,7 +1568,87 @@
     // words that sit next to each other on the same visual line into short phrases, and
     // scores each phrase by how name-shaped it looks. Returns the top few — plural, on
     // purpose — so a wrong top guess is one tap away from being fixed, not a dead end.
-    function badgeRankNameCandidates(ocrWords) {
+    // Company-agnostic layout signal: nearly every ID badge — regardless of employer,
+    // authority, or template — puts the holder's name directly under their photo. Instead
+    // of leaning on a list of known company/aviation words (which only helps for badges
+    // we've already seen), this locates the headshot itself via a lightweight skin-tone
+    // density scan, so the name-line bonus below works for a badge from ANY company.
+    function badgeFindFaceRegion(canvas) {
+      const ctx = canvas.getContext('2d');
+      const w = canvas.width, h = canvas.height;
+      const frame = ctx.getImageData(0, 0, w, h);
+      const px = frame.data;
+
+      const tile = 16;
+      const cols = Math.ceil(w / tile), rows = Math.ceil(h / tile);
+      const density = new Float32Array(cols * rows);
+
+      for (let ty = 0; ty < rows; ty++) {
+        for (let tx = 0; tx < cols; tx++) {
+          const x0 = tx * tile, y0 = ty * tile;
+          const x1 = Math.min(w, x0 + tile), y1 = Math.min(h, y0 + tile);
+          let skinCount = 0, sampleCount = 0;
+          for (let y = y0; y < y1; y += 2) {
+            for (let x = x0; x < x1; x += 2) {
+              const idx = (y * w + x) * 4;
+              const r = px[idx], g = px[idx + 1], b = px[idx + 2];
+              const maxc = Math.max(r, g, b), minc = Math.min(r, g, b);
+              // Classic RGB skin-tone rule (Peer et al.) — works across skin tones and
+              // lighting well enough to just locate "roughly where a face is", which is
+              // all this needs.
+              const isSkin = r > 95 && g > 40 && b > 20 && (maxc - minc) > 15 &&
+                Math.abs(r - g) > 15 && r > g && r > b;
+              if (isSkin) skinCount++;
+              sampleCount++;
+            }
+          }
+          density[ty * cols + tx] = sampleCount ? skinCount / sampleCount : 0;
+        }
+      }
+
+      // Integral image over the tile-density grid for O(1) window sums.
+      const stride = cols + 1;
+      const integral = new Float64Array(stride * (rows + 1));
+      for (let ty = 0; ty < rows; ty++) {
+        let rowSum = 0;
+        for (let tx = 0; tx < cols; tx++) {
+          rowSum += density[ty * cols + tx];
+          integral[(ty + 1) * stride + (tx + 1)] = integral[ty * stride + (tx + 1)] + rowSum;
+        }
+      }
+      const windowSum = (tx0, ty0, tx1, ty1) =>
+        integral[ty1 * stride + tx1] - integral[ty0 * stride + tx1] - integral[ty1 * stride + tx0] + integral[ty0 * stride + tx0];
+
+      // ID photos are typically ~15-35% of the badge's width — try a few plausible sizes
+      // rather than assume one, since photo framing/zoom varies shot to shot.
+      let best = null;
+      for (const wFrac of [0.16, 0.22, 0.28, 0.34]) {
+        const winWTiles = Math.max(2, Math.round((w * wFrac) / tile));
+        const winHTiles = Math.max(2, Math.round(winWTiles * 1.25)); // passport-photo-ish aspect
+        if (winWTiles >= cols || winHTiles >= rows) continue;
+        for (let ty0 = 0; ty0 + winHTiles <= rows; ty0 += 2) {
+          for (let tx0 = 0; tx0 + winWTiles <= cols; tx0 += 2) {
+            const sum = windowSum(tx0, ty0, tx0 + winWTiles, ty0 + winHTiles);
+            const avg = sum / (winWTiles * winHTiles);
+            if (!best || avg > best.avg) {
+              best = { avg, tx0, ty0, tx1: tx0 + winWTiles, ty1: ty0 + winHTiles };
+            }
+          }
+        }
+      }
+
+      // Require a meaningful concentration of skin-toned pixels — otherwise this photo
+      // likely has no visible face in frame (badly cropped, glare, etc.) and the caller
+      // should fall back to scoring without a positional bonus rather than trust noise.
+      if (!best || best.avg < 0.12) return null;
+
+      return {
+        x0: best.tx0 * tile, y0: best.ty0 * tile,
+        x1: best.tx1 * tile, y1: best.ty1 * tile
+      };
+    }
+
+    function badgeRankNameCandidates(ocrWords, faceRegion) {
       const words = (ocrWords || [])
         .map(w => ({ text: (w.text || '').toUpperCase().replace(/[^A-Z'\-]/g, ''), confidence: w.confidence, bbox: w.bbox }))
         .filter(w => w.text.length >= 2 && w.confidence >= 20 && w.bbox);
@@ -1607,6 +1687,23 @@
         if (tokens.every(t => /[AEIOUY]/.test(t))) score += 8;
         if (tokens.some(t => /(.)\1{2,}/.test(t))) score -= 20;
 
+        // The universal, company-agnostic signal: a phrase sitting in the band right below
+        // the detected headshot, roughly centered under it, is overwhelmingly likely to be
+        // the name line — this outweighs vocabulary-based filtering, which only helps for
+        // badge templates already seen.
+        if (faceRegion) {
+          const faceH = faceRegion.y1 - faceRegion.y0;
+          const faceCx = (faceRegion.x0 + faceRegion.x1) / 2;
+          const nameBandTop = faceRegion.y1 - faceH * 0.15;
+          const nameBandBottom = faceRegion.y1 + faceH * 1.4;
+          const phraseCy = (phrase[0].bbox.y0 + phrase[phrase.length - 1].bbox.y1) / 2;
+          const phraseCx = (phrase[0].bbox.x0 + phrase[phrase.length - 1].bbox.x1) / 2;
+          const faceW = faceRegion.x1 - faceRegion.x0;
+          const inBand = phraseCy >= nameBandTop && phraseCy <= nameBandBottom;
+          const nearX = Math.abs(phraseCx - faceCx) < faceW * 2.2;
+          if (inBand && nearX) score += 35;
+        }
+
         scored.push({ text, score });
       }
 
@@ -1637,7 +1734,7 @@
       badgeGetWorker().catch(() => {}); // fire-and-forget; real errors surface at scan time
     }
 
-    async function badgeRunOCR(canvas, onProgress) {
+    async function badgeRunOCR(canvas, faceRegion, onProgress) {
       const withTimeout = (p, ms) => Promise.race([
         p,
         new Promise((_, reject) => setTimeout(() => reject(new Error('Scan is taking too long on this connection')), ms))
@@ -1659,13 +1756,13 @@
         // ID badge's layout — so it's tried first; a uniform-block pass backs it up.
         await worker.setParameters({ tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZ '-", tessedit_pageseg_mode: '11' });
         let res = await withTimeout(worker.recognize(canvas), 20000);
-        let candidates = badgeRankNameCandidates(res.data.words);
+        let candidates = badgeRankNameCandidates(res.data.words, faceRegion);
 
         if (candidates.length === 0) {
           if (onProgress) onProgress('🔁 Refining scan mode...');
           await worker.setParameters({ tessedit_pageseg_mode: '6' });
           res = await withTimeout(worker.recognize(canvas), 20000);
-          candidates = badgeRankNameCandidates(res.data.words);
+          candidates = badgeRankNameCandidates(res.data.words, faceRegion);
         }
         return candidates;
       } catch (err) {
@@ -1714,10 +1811,13 @@
         });
 
         const canvas = badgeOrientCanvas(img);
+        // Locate the headshot while color is still intact — thresholding below converts
+        // everything to black/white and would erase the skin-tone signal this needs.
+        const faceRegion = badgeFindFaceRegion(canvas);
         badgeEvenOutLighting(canvas);
 
         if (fb) fb.innerText = '🔍 Detecting name candidates...';
-        const candidates = await badgeRunOCR(canvas, (msg) => { if (fb) fb.innerText = msg; });
+        const candidates = await badgeRunOCR(canvas, faceRegion, (msg) => { if (fb) fb.innerText = msg; });
         const previewDataURL = badgeSnapshot(canvas);
 
         if (fb) fb.innerText = candidates.length
