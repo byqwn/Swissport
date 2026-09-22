@@ -1481,7 +1481,11 @@
       const portrait = img.height > img.width * 1.25;
       const baseW = portrait ? img.height : img.width;
       const baseH = portrait ? img.width : img.height;
-      const scale = Math.min(2.2, Math.max(1, 1600 / baseW));
+      // Target ~1600px wide regardless of source size: modern phone cameras shoot
+      // 3000-4000px photos, and feeding that full resolution into per-pixel lighting
+      // correction + OCR is what was making scans time out on mobile — this was
+      // clamped to never go BELOW 1x, so large photos were never actually downscaled.
+      const scale = Math.min(2.2, 1600 / baseW);
 
       const canvas = document.createElement('canvas');
       canvas.width = Math.round(baseW * scale);
@@ -1642,23 +1646,26 @@
 
       let worker;
       try {
-        worker = await withTimeout(badgeGetWorker(), 25000);
+        // The OCR engine (WASM core + language data, several MB) only needs downloading
+        // once per session, but that first download can be slow on airport WiFi/cellular —
+        // give it real room before giving up.
+        worker = await withTimeout(badgeGetWorker(), 45000);
       } catch (err) {
         badgeWorkerPromise = null;
-        throw err;
+        throw new Error('OCR engine could not load — check your connection and try again');
       }
 
       try {
         // Sparse-text mode is built for scattered text around a photo/logo — exactly an
         // ID badge's layout — so it's tried first; a uniform-block pass backs it up.
         await worker.setParameters({ tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZ '-", tessedit_pageseg_mode: '11' });
-        let res = await withTimeout(worker.recognize(canvas), 15000);
+        let res = await withTimeout(worker.recognize(canvas), 20000);
         let candidates = badgeRankNameCandidates(res.data.words);
 
         if (candidates.length === 0) {
           if (onProgress) onProgress('🔁 Refining scan mode...');
           await worker.setParameters({ tessedit_pageseg_mode: '6' });
-          res = await withTimeout(worker.recognize(canvas), 15000);
+          res = await withTimeout(worker.recognize(canvas), 20000);
           candidates = badgeRankNameCandidates(res.data.words);
         }
         return candidates;
