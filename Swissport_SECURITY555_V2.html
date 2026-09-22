@@ -912,8 +912,12 @@
       const dd = String(today.getDate()).padStart(2, '0');
       
       dateInput.value = `${yyyy}-${mm}-${dd}`;
-      updateDateDisplay(); 
+      updateDateDisplay();
       setInterval(updateActiveStaffChips, 1000);
+
+      // Start downloading the OCR engine now, in the background, while the officer is still
+      // filling in station/flight — so it's already warm by the time they reach Scan ID Badge.
+      badgeWarmUpOCR();
 
       setTimeout(() => {
         if (window.syncCloudFlightKeys) window.syncCloudFlightKeys();
@@ -1607,28 +1611,63 @@
       return scored.slice(0, 4);
     }
 
+    // A fresh Tesseract worker downloads its WASM engine + language data (several MB) from
+    // a CDN before it can recognize anything — doing that on every single scan is what was
+    // causing "Could not process that photo" on real mobile networks (airport WiFi/cellular
+    // timing out mid-download). One worker is now created lazily on first use and kept alive
+    // for the whole session; badgeWarmUpOCR() also kicks that download off in the background
+    // as soon as a flight session starts, so it is usually already warm by the time anyone
+    // taps "Scan ID Badge".
+    let badgeWorkerPromise = null;
+
+    function badgeGetWorker() {
+      if (!badgeWorkerPromise) {
+        badgeWorkerPromise = Tesseract.createWorker('eng').catch(err => {
+          badgeWorkerPromise = null; // let the next attempt retry from scratch instead of staying stuck
+          throw err;
+        });
+      }
+      return badgeWorkerPromise;
+    }
+
+    function badgeWarmUpOCR() {
+      badgeGetWorker().catch(() => {}); // fire-and-forget; real errors surface at scan time
+    }
+
     async function badgeRunOCR(canvas, onProgress) {
-      const worker = await Tesseract.createWorker('eng');
-      const withTimeout = (p) => Promise.race([
+      const withTimeout = (p, ms) => Promise.race([
         p,
-        new Promise((_, reject) => setTimeout(() => reject(new Error('OCR timeout')), 14000))
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Scan is taking too long on this connection')), ms))
       ]);
+
+      let worker;
+      try {
+        worker = await withTimeout(badgeGetWorker(), 25000);
+      } catch (err) {
+        badgeWorkerPromise = null;
+        throw err;
+      }
+
       try {
         // Sparse-text mode is built for scattered text around a photo/logo — exactly an
         // ID badge's layout — so it's tried first; a uniform-block pass backs it up.
         await worker.setParameters({ tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZ '-", tessedit_pageseg_mode: '11' });
-        let res = await withTimeout(worker.recognize(canvas));
+        let res = await withTimeout(worker.recognize(canvas), 15000);
         let candidates = badgeRankNameCandidates(res.data.words);
 
         if (candidates.length === 0) {
           if (onProgress) onProgress('🔁 Refining scan mode...');
           await worker.setParameters({ tessedit_pageseg_mode: '6' });
-          res = await withTimeout(worker.recognize(canvas));
+          res = await withTimeout(worker.recognize(canvas), 15000);
           candidates = badgeRankNameCandidates(res.data.words);
         }
         return candidates;
-      } finally {
+      } catch (err) {
+        // The worker may be left in a bad state after a failed recognize — drop it so the
+        // next scan starts clean instead of repeating the same failure forever.
         try { await worker.terminate(); } catch (e) {}
+        badgeWorkerPromise = null;
+        throw err;
       }
     }
 
@@ -1658,10 +1697,15 @@
       if (label) { label.classList.add('scan-active'); label.innerHTML = '⏳ Scanning Badge...'; }
       if (fb) fb.innerText = '⚡ Reading badge...';
 
+      let objectUrl = null;
       try {
         const img = new Image();
-        img.src = URL.createObjectURL(file);
-        await new Promise((resolve, reject) => { img.onload = resolve; img.onerror = reject; });
+        objectUrl = URL.createObjectURL(file);
+        img.src = objectUrl;
+        await new Promise((resolve, reject) => {
+          img.onload = resolve;
+          img.onerror = () => reject(new Error('This photo could not be opened — try taking it again'));
+        });
 
         const canvas = badgeOrientCanvas(img);
         badgeEvenOutLighting(canvas);
@@ -1676,9 +1720,13 @@
 
         openBadgeConfirmModal(previewDataURL, candidates, sectionType, input);
       } catch (err) {
-        if (fb) fb.innerText = '⚠️ Could not process that photo — try again.';
-        console.error(err);
+        // Show the real reason (network/CDN hiccup, bad photo, timeout, ...) instead of a
+        // dead-end message, so a repeat failure is diagnosable instead of a mystery.
+        const reason = (err && err.message) ? err.message : 'Unknown error';
+        if (fb) fb.innerText = `⚠️ ${reason} — tap Scan to try again.`;
+        console.error('Badge scan failed:', err);
       } finally {
+        if (objectUrl) URL.revokeObjectURL(objectUrl);
         isScanningBadge = false;
         if (label) { label.classList.remove('scan-active'); label.innerHTML = labelOriginalText; }
         input.value = '';
