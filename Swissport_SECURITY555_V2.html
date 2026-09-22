@@ -469,6 +469,13 @@
       background: #f8fafc; transition: all 0.2s;
     }
     .badge-name-input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(200,16,46,0.15); background: #fff; }
+    .badge-candidate-chips { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-bottom: 12px; }
+    .badge-candidate-chip {
+      padding: 8px 14px; border-radius: 20px; border: 2px solid #cbd5e1; background: #f8fafc;
+      font-size: 13px; font-weight: 700; color: #334155; cursor: pointer; transition: all 0.15s;
+    }
+    .badge-candidate-chip:hover { border-color: #94a3b8; }
+    .badge-candidate-chip.selected { background: var(--primary); border-color: var(--primary); color: #fff; }
 
     @media print {
       body { background: white; padding: 0; margin: 0; }
@@ -593,8 +600,9 @@
         <img id="badgePreviewImg" alt="Captured badge">
       </div>
       <div class="badge-confidence" id="badgeConfidenceLabel"></div>
+      <div class="badge-candidate-chips" id="badgeCandidateChips"></div>
       <div style="margin-bottom: 14px;">
-        <label class="badge-modal-label">Full Name — check and correct before logging</label>
+        <label class="badge-modal-label">Full Name — tap a match above, or type/edit here</label>
         <input type="text" id="badgeNameInput" class="badge-name-input" placeholder="Enter full name" autocomplete="off">
       </div>
       <div class="modal-actions">
@@ -722,7 +730,7 @@
     let isRemoteUpdating = false;
     let isScanningBadge = false;
     let cachedSignatureData = null;
-    let pendingBadgeScan = null;
+    let badgeScanState = null;
 
     let appData = {
       cabin: { fields: {}, rows: [], signOff: {}, remarks: "" },
@@ -1455,282 +1463,273 @@
       } 
     }
 
+    // ============================================================================
+    // Badge Scanner — rewritten from scratch around a "surface candidates, tap to
+    // pick" flow instead of a single strict guess. A badge photo rarely OCRs into
+    // one clean answer, so instead of betting everything on one rule-set and
+    // dead-ending into "type it yourself" when that rule misses, every plausible
+    // name the OCR pass turns up is ranked and offered as a one-tap chip. The
+    // top-ranked guess is always pre-filled too, so a good photo still resolves
+    // in a single tap on "Confirm & Log" — nothing typed at all.
+    // ============================================================================
+
+    function badgeOrientCanvas(img) {
+      const portrait = img.height > img.width * 1.25;
+      const baseW = portrait ? img.height : img.width;
+      const baseH = portrait ? img.width : img.height;
+      const scale = Math.min(2.2, Math.max(1, 1600 / baseW));
+
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(baseW * scale);
+      canvas.height = Math.round(baseH * scale);
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      if (portrait) {
+        ctx.translate(canvas.width / 2, canvas.height / 2);
+        ctx.rotate(Math.PI / 2);
+        ctx.drawImage(img, -canvas.height / 2, -canvas.width / 2, canvas.height, canvas.width);
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+      } else {
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      }
+      return canvas;
+    }
+
+    // Tile-based brightness normalization: a badge photographed outdoors can have a
+    // sun-glared corner and a shadowed corner in the same frame, so one global
+    // contrast fix isn't enough — each tile gets stretched to full contrast on its
+    // own, which handles both direct sunlight and low-light/night captures alike.
+    function badgeEvenOutLighting(canvas) {
+      const ctx = canvas.getContext('2d');
+      const w = canvas.width, h = canvas.height;
+      const frame = ctx.getImageData(0, 0, w, h);
+      const px = frame.data;
+
+      const gray = new Float32Array(w * h);
+      for (let i = 0, p = 0; p < px.length; p += 4, i++) {
+        gray[i] = px[p] * 0.299 + px[p + 1] * 0.587 + px[p + 2] * 0.114;
+      }
+
+      const tile = 40;
+      const tilesX = Math.ceil(w / tile), tilesY = Math.ceil(h / tile);
+      const lo = new Float32Array(tilesX * tilesY).fill(255);
+      const hi = new Float32Array(tilesX * tilesY).fill(0);
+
+      for (let y = 0; y < h; y += 2) {
+        const ty = (y / tile) | 0;
+        for (let x = 0; x < w; x += 2) {
+          const tx = (x / tile) | 0;
+          const idx = ty * tilesX + tx;
+          const v = gray[y * w + x];
+          if (v < lo[idx]) lo[idx] = v;
+          if (v > hi[idx]) hi[idx] = v;
+        }
+      }
+
+      const out = new Uint8ClampedArray(px.length);
+      for (let y = 0; y < h; y++) {
+        const ty = (y / tile) | 0;
+        for (let x = 0; x < w; x++) {
+          const tx = (x / tile) | 0;
+          const idx = ty * tilesX + tx;
+          const spread = Math.max(30, hi[idx] - lo[idx]);
+          let v = ((gray[y * w + x] - lo[idx]) / spread) * 255;
+          v = v < 0 ? 0 : (v > 255 ? 255 : v);
+          const p = (y * w + x) * 4;
+          out[p] = out[p + 1] = out[p + 2] = v;
+          out[p + 3] = 255;
+        }
+      }
+      ctx.putImageData(new ImageData(out, w, h), 0, 0);
+    }
+
+    const BADGE_NOISE_WORDS = new Set([
+      'GACA', 'JED', 'JEDCO', 'JEDDAH', 'AIRPORT', 'AIRPORTS', 'DATE', 'EXPIRY', 'EXPIRES',
+      'AUTHORITY', 'CIVIL', 'VALID', 'KING', 'ABDULAZIZ', 'INTERNATIONAL', 'SECURITY', 'COMPANY',
+      'LOGISTICS', 'GUARD', 'SGS', 'SAL', 'SWISSPORT', 'AVIATION', 'REPRESENTATIVE', 'NAME',
+      'FULL', 'EMP', 'PASS', 'SIGNATURE', 'BLOOD', 'EMPLOYEE', 'ID', 'SAUDI', 'ARABIA', 'MINISTRY',
+      'INTERIOR', 'TYPE', 'STATION', 'KSA', 'GENERAL', 'PERMIT', 'ACCESS', 'ZONE', 'ZONES', 'ALL',
+      'RAMP', 'CABIN', 'HOLD', 'SUPERVISOR', 'OFFICER', 'DRIVER', 'ESCORT', 'VISITOR', 'TEMPORARY',
+      'PERMANENT', 'TERMINAL', 'OPERATIONS', 'AGENT', 'CREW', 'GROUND', 'SERVICES', 'CARGO',
+      'TRAFFIC', 'INSPECTION', 'SAFETY', 'BADGE', 'CARD', 'CONTROL', 'POSITION', 'DEPARTMENT',
+      'DIVISION', 'NATIONALITY', 'GROUP', 'STATUS', 'DUTY', 'SERIAL', 'NUMBER', 'RIYADH', 'DAMMAM', 'MEDINA'
+    ]);
+
+    // Walks the OCR word list (each word carries its own on-image position), stitches
+    // words that sit next to each other on the same visual line into short phrases, and
+    // scores each phrase by how name-shaped it looks. Returns the top few — plural, on
+    // purpose — so a wrong top guess is one tap away from being fixed, not a dead end.
+    function badgeRankNameCandidates(ocrWords) {
+      const words = (ocrWords || [])
+        .map(w => ({ text: (w.text || '').toUpperCase().replace(/[^A-Z'\-]/g, ''), confidence: w.confidence, bbox: w.bbox }))
+        .filter(w => w.text.length >= 2 && w.confidence >= 20 && w.bbox);
+
+      const phrases = [];
+      for (let i = 0; i < words.length; i++) {
+        const phrase = [words[i]];
+        for (let j = i + 1; j < words.length && phrase.length < 4; j++) {
+          const last = phrase[phrase.length - 1];
+          const next = words[j];
+          const lineHeight = Math.max(1, last.bbox.y1 - last.bbox.y0);
+          const onSameLine = Math.abs(next.bbox.y0 - last.bbox.y0) < lineHeight * 0.7;
+          const wordWidth = Math.max(1, last.bbox.x1 - last.bbox.x0);
+          const gap = next.bbox.x0 - last.bbox.x1;
+          if (onSameLine && gap > -6 && gap < wordWidth * 2.5 + 40) {
+            phrase.push(next);
+          } else {
+            break;
+          }
+        }
+        if (phrase.length >= 2) phrases.push(phrase);
+      }
+
+      const seenText = new Set();
+      const scored = [];
+      for (const phrase of phrases) {
+        const tokens = phrase.map(p => p.text);
+        if (tokens.some(t => BADGE_NOISE_WORDS.has(t))) continue;
+
+        const text = tokens.join(' ');
+        if (seenText.has(text)) continue;
+        seenText.add(text);
+
+        let score = phrase.reduce((s, p) => s + p.confidence, 0) / phrase.length;
+        if (tokens.length === 2 || tokens.length === 3) score += 12;
+        if (tokens.every(t => /[AEIOUY]/.test(t))) score += 8;
+        if (tokens.some(t => /(.)\1{2,}/.test(t))) score -= 20;
+
+        scored.push({ text, score });
+      }
+
+      scored.sort((a, b) => b.score - a.score);
+      return scored.slice(0, 4);
+    }
+
+    async function badgeRunOCR(canvas, onProgress) {
+      const worker = await Tesseract.createWorker('eng');
+      const withTimeout = (p) => Promise.race([
+        p,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('OCR timeout')), 14000))
+      ]);
+      try {
+        // Sparse-text mode is built for scattered text around a photo/logo — exactly an
+        // ID badge's layout — so it's tried first; a uniform-block pass backs it up.
+        await worker.setParameters({ tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZ '-", tessedit_pageseg_mode: '11' });
+        let res = await withTimeout(worker.recognize(canvas));
+        let candidates = badgeRankNameCandidates(res.data.words);
+
+        if (candidates.length === 0) {
+          if (onProgress) onProgress('🔁 Refining scan mode...');
+          await worker.setParameters({ tessedit_pageseg_mode: '6' });
+          res = await withTimeout(worker.recognize(canvas));
+          candidates = badgeRankNameCandidates(res.data.words);
+        }
+        return candidates;
+      } finally {
+        try { await worker.terminate(); } catch (e) {}
+      }
+    }
+
+    function badgeSnapshot(canvas, maxWidth) {
+      const w = maxWidth || 420;
+      const scale = Math.min(1, w / canvas.width);
+      const out = document.createElement('canvas');
+      out.width = Math.max(1, Math.round(canvas.width * scale));
+      out.height = Math.max(1, Math.round(canvas.height * scale));
+      out.getContext('2d').drawImage(canvas, 0, 0, out.width, out.height);
+      return out.toDataURL('image/jpeg', 0.78);
+    }
+
+    function badgeTitleCase(text) {
+      return String(text || '').toLowerCase().split(' ').filter(Boolean)
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+    }
+
     async function processSmartBadge(input, sectionType) {
       if (!input.files || !input.files[0] || isScanningBadge) return;
-      
+
       isScanningBadge = true;
       const file = input.files[0];
       const fb = document.getElementById('ocrFeedback');
       const label = document.getElementById(`scan-label-${sectionType}`);
       const labelOriginalText = label ? label.innerHTML : '';
       if (label) { label.classList.add('scan-active'); label.innerHTML = '⏳ Scanning Badge...'; }
+      if (fb) fb.innerText = '⚡ Reading badge...';
 
-      if(fb) fb.innerText = '⚡ Enhancing badge contrast & penetrating sleeve...';
-      
-      let worker = null;
       try {
-        const img = new Image(); 
-        img.src = URL.createObjectURL(file); 
-        await new Promise(r => img.onload = r);
-        
-        const canvas = document.createElement('canvas'); 
-        const ctx = canvas.getContext('2d');
-        
-        let renderWidth = img.width;
-        let renderHeight = img.height;
-        let rotate = false;
-        
-        if (img.height > img.width * 1.3) {
-            rotate = true;
-            renderWidth = img.height;
-            renderHeight = img.width;
-        }
+        const img = new Image();
+        img.src = URL.createObjectURL(file);
+        await new Promise((resolve, reject) => { img.onload = resolve; img.onerror = reject; });
 
-        const targetWidth = 1400;
-        let scale = targetWidth / renderWidth;
-        if (scale > 2.0) scale = 2.0;
-        
-        canvas.width = Math.floor(renderWidth * scale); 
-        canvas.height = Math.floor(renderHeight * scale);
-        
-        ctx.fillStyle = '#ffffff'; 
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        const canvas = badgeOrientCanvas(img);
+        badgeEvenOutLighting(canvas);
 
-        if (rotate) {
-            ctx.save();
-            ctx.translate(canvas.width / 2, canvas.height / 2);
-            ctx.rotate(90 * Math.PI / 180);
-            ctx.drawImage(img, -canvas.height / 2, -canvas.width / 2, canvas.height, canvas.width);
-            ctx.restore();
-        } else {
-            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        }
-        
-        const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        const data = imgData.data;
-        const w = canvas.width;
-        const h = canvas.height;
-        
-        const gray = new Uint8Array(w * h);
-        for (let i = 0, j = 0; i < data.length; i += 4, j++) {
-            gray[j] = (data[i] * 0.299 + data[i+1] * 0.587 + data[i+2] * 0.114);
-        }
+        if (fb) fb.innerText = '🔍 Detecting name candidates...';
+        const candidates = await badgeRunOCR(canvas, (msg) => { if (fb) fb.innerText = msg; });
+        const previewDataURL = badgeSnapshot(canvas);
 
-        // Lighting-adaptive correction: brightens badges shot in shade/darkness and tames
-        // the local glare direct sunlight throws onto laminated badge sleeves, so the OCR
-        // pass sees clean, evenly-lit text either way.
-        let brightnessSum = 0, sampleCount = 0;
-        for (let j = 0; j < gray.length; j += 4) { brightnessSum += gray[j]; sampleCount++; }
-        const meanBrightness = brightnessSum / sampleCount;
+        if (fb) fb.innerText = candidates.length
+          ? '🔎 Pick the correct name, or edit it.'
+          : '⚠️ Could not read a name — type it in.';
 
-        let gamma = 1.0;
-        if (meanBrightness < 95) gamma = 0.55;
-        else if (meanBrightness > 185) gamma = 1.35;
-        if (gamma !== 1.0) {
-            const gammaLUT = new Uint8Array(256);
-            for (let v = 0; v < 256; v++) gammaLUT[v] = Math.min(255, Math.round(Math.pow(v / 255, gamma) * 255));
-            for (let j = 0; j < gray.length; j++) gray[j] = gammaLUT[gray[j]];
-        }
-
-        applyAdaptiveLocalContrast(gray, w, h);
-
-        const output = new Uint8ClampedArray(data.length);
-        for (let y = 1; y < h - 1; y++) {
-            for (let x = 1; x < w - 1; x++) {
-                const idx = y * w + x;
-                const sharpVal = 5 * gray[idx] 
-                               - gray[idx - 1] 
-                               - gray[idx + 1] 
-                               - gray[idx - w] 
-                               - gray[idx + w];
-                
-                const finalPxl = sharpVal < 0 ? 0 : (sharpVal > 255 ? 255 : sharpVal);
-                const outIdx = idx * 4;
-                output[outIdx] = finalPxl;
-                output[outIdx + 1] = finalPxl;
-                output[outIdx + 2] = finalPxl;
-                output[outIdx + 3] = 255;
-            }
-        }
-        
-        ctx.putImageData(new ImageData(output, w, h), 0, 0);
-
-        if(fb) fb.innerText = '🔍 Extracting verified employee identity...';
-
-        worker = await Tesseract.createWorker('eng');
-        await worker.setParameters({
-            tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZ '-",
-            tessedit_pageseg_mode: '6'
-        });
-        
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error("OCR scan timeout")), 15000)
-        );
-
-        const result = await Promise.race([
-          worker.recognize(canvas),
-          timeoutPromise
-        ]);
-        
-        const lines = result.data.lines;
-
-        const airportExclusions = [
-            'GACA', 'JED', 'JEDCO', 'JEDDAH', 'AIRPORT', 'AIRPORTS', 'DATE', 'EXPIRY', 
-            'AUTHORITY', 'CIVIL', 'VALID', 'KING', 'ABDULAZIZ', 'INTERNATIONAL', 
-            'SECURITY', 'COMPANY', 'LOGISTICS', 'GUARD', 'SGS', 'SAL', 'SWISSPORT', 
-            'AVIATION', 'REPRESENTATIVE', 'NAME', 'PASS', 'SIGNATURE', 'BLOOD', 'EMPLOYEE', 
-            'ID', 'SAUDI', 'ARABIA', 'MINISTRY', 'INTERIOR', 'TYPE', 'STATION', 'KSA', 
-            'GENERAL', 'PERMIT', 'ACCESS', 'ZONE', 'ZONES', 'ALL', 'RAMP', 'CABIN', 'HOLD',
-            'SUPERVISOR', 'OFFICER', 'DRIVER', 'ESCORT', 'VISITOR', 'TEMPORARY', 'PERMANENT',
-            'TERMINAL', 'OPERATIONS', 'AGENT', 'CREW', 'GROUND', 'SERVICES', 'CARGO', 'TRAFFIC',
-            'INSPECTION', 'SAFETY', 'BADGE', 'CARD', 'CONTROL', 'POSITION', 'DEPARTMENT', 'DIVISION',
-            'EXPIRES', 'NATIONALITY', 'GROUP', 'STATUS', 'DUTY', 'SERIAL', 'NUMBER'
-        ];
-        
-        let candidateNames = [];
-        
-        for (let line of lines) {
-            if (line.confidence < 30) continue;
-
-            let cleanLine = line.text.toUpperCase();
-            cleanLine = cleanLine.replace(/^(NAME|EMP NAME|FULL NAME)[\s\:\-]+/i, '').trim();
-            cleanLine = cleanLine.replace(/[^A-Z\s'\-]/g, ' ').replace(/\s+/g, ' ').trim();
-
-            let words = cleanLine.split(' ').filter(w => w.length >= 2);
-
-            if (words.length >= 2 && words.length <= 5) {
-                let hasExclude = words.some(w => airportExclusions.includes(w));
-                if (hasExclude) continue;
-
-                let isValidHumanName = words.every(w => {
-                    let hasVowel = /[AEIOUY]/.test(w); 
-                    let noCrazyConsonants = !/[B-DF-HJ-NP-TV-Z]{5,}/.test(w); 
-                    let noRepeats = !/(.)\1{2,}/.test(w); 
-                    return hasVowel && noCrazyConsonants && noRepeats;
-                });
-
-                if (isValidHumanName) {
-                    candidateNames.push({
-                        text: words.join(' '),
-                        confidence: line.confidence,
-                        length: words.join(' ').length
-                    });
-                }
-            }
-        }
-
-        let bestName = "";
-        let bestConfidence = 0;
-        if (candidateNames.length > 0) {
-            candidateNames.sort((a, b) => b.confidence - a.confidence);
-            bestName = candidateNames[0].text;
-            bestConfidence = candidateNames[0].confidence;
-        }
-
-        const previewDataURL = makeBadgePreviewDataURL(canvas);
-
-        if (!bestName) {
-            if (fb) fb.innerText = '⚠️ Badge text unclear — enter the name manually to continue.';
-        } else {
-            if (fb) fb.innerText = '🔎 Name detected — please confirm before logging.';
-        }
-        openBadgeConfirmModal(previewDataURL, toTitleCase(bestName), bestConfidence, sectionType, input);
+        openBadgeConfirmModal(previewDataURL, candidates, sectionType, input);
       } catch (err) {
-        if(fb) fb.innerText = '⚠️ Error processing badge photo.'; 
+        if (fb) fb.innerText = '⚠️ Could not process that photo — try again.';
         console.error(err);
       } finally {
-        if (worker) {
-          try { await worker.terminate(); } catch (e) {}
-        }
         isScanningBadge = false;
         if (label) { label.classList.remove('scan-active'); label.innerHTML = labelOriginalText; }
         input.value = '';
       }
     }
 
-    // Block-wise local min/max normalization (CLAHE-lite): each tile of the badge photo is
-    // stretched to full contrast independently, so a sun-glared corner and a shadowed corner
-    // of the same image both come out legible instead of one washing out the other.
-    function applyAdaptiveLocalContrast(gray, w, h) {
-      const blockSize = 48;
-      const cols = Math.ceil(w / blockSize);
-      const rows = Math.ceil(h / blockSize);
-      const blockMin = new Float32Array(cols * rows);
-      const blockMax = new Float32Array(cols * rows);
-
-      for (let by = 0; by < rows; by++) {
-        for (let bx = 0; bx < cols; bx++) {
-          let mn = 255, mx = 0;
-          const x0 = bx * blockSize, y0 = by * blockSize;
-          const x1 = Math.min(w, x0 + blockSize), y1 = Math.min(h, y0 + blockSize);
-          for (let y = y0; y < y1; y += 2) {
-            for (let x = x0; x < x1; x += 2) {
-              const v = gray[y * w + x];
-              if (v < mn) mn = v;
-              if (v > mx) mx = v;
-            }
-          }
-          blockMin[by * cols + bx] = mn;
-          blockMax[by * cols + bx] = mx;
-        }
-      }
-
-      for (let y = 0; y < h; y++) {
-        const by = Math.min(rows - 1, (y / blockSize) | 0);
-        for (let x = 0; x < w; x++) {
-          const bx = Math.min(cols - 1, (x / blockSize) | 0);
-          const mn = blockMin[by * cols + bx];
-          const mx = blockMax[by * cols + bx];
-          const range = Math.max(25, mx - mn);
-          let v = ((gray[y * w + x] - mn) / range) * 255;
-          gray[y * w + x] = v < 0 ? 0 : (v > 255 ? 255 : v);
-        }
-      }
-    }
-
-    function toTitleCase(str) {
-      return String(str || '').toLowerCase().split(' ').filter(Boolean)
-        .map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-    }
-
-    function makeBadgePreviewDataURL(sourceCanvas, maxW) {
-      maxW = maxW || 420;
-      const scale = Math.min(1, maxW / sourceCanvas.width);
-      const pc = document.createElement('canvas');
-      pc.width = Math.max(1, Math.round(sourceCanvas.width * scale));
-      pc.height = Math.max(1, Math.round(sourceCanvas.height * scale));
-      pc.getContext('2d').drawImage(sourceCanvas, 0, 0, pc.width, pc.height);
-      return pc.toDataURL('image/jpeg', 0.78);
-    }
-
     // Every scan lands here for human confirmation before it touches the log — OCR never
     // writes straight to the Personnel table, so a misread never becomes an official record.
-    function openBadgeConfirmModal(previewDataURL, prefillName, confidence, sectionType, inputEl) {
-      pendingBadgeScan = { sectionType, time: getNow24H(), inputEl };
+    function openBadgeConfirmModal(previewDataURL, candidates, sectionType, inputEl) {
+      badgeScanState = { sectionType, inputEl, time: getNow24H() };
       document.getElementById('badgePreviewImg').src = previewDataURL;
-      document.getElementById('badgeNameInput').value = prefillName;
+
+      const nameInput = document.getElementById('badgeNameInput');
+      const chipsBox = document.getElementById('badgeCandidateChips');
+      chipsBox.innerHTML = '';
+
+      if (candidates.length > 0) {
+        candidates.forEach((c, i) => {
+          const chip = document.createElement('button');
+          chip.type = 'button';
+          chip.className = 'badge-candidate-chip' + (i === 0 ? ' selected' : '');
+          chip.innerText = badgeTitleCase(c.text);
+          chip.onclick = () => {
+            chipsBox.querySelectorAll('.badge-candidate-chip').forEach(el => el.classList.remove('selected'));
+            chip.classList.add('selected');
+            nameInput.value = badgeTitleCase(c.text);
+          };
+          chipsBox.appendChild(chip);
+        });
+        nameInput.value = badgeTitleCase(candidates[0].text);
+      } else {
+        nameInput.value = '';
+      }
 
       const confEl = document.getElementById('badgeConfidenceLabel');
       confEl.classList.remove('conf-high', 'conf-med', 'conf-low');
-      if (!prefillName) {
-        confEl.innerText = '⚠️ No name auto-detected — type it in manually';
+      if (candidates.length === 0) {
+        confEl.innerText = '⚠️ No candidates found — type the name manually';
         confEl.classList.add('conf-low');
-      } else if (confidence >= 70) {
-        confEl.innerText = '✓ High confidence read';
+      } else if (candidates[0].score >= 75) {
+        confEl.innerText = `✓ ${candidates.length} match(es) found — top pick looks strong`;
         confEl.classList.add('conf-high');
-      } else if (confidence >= 45) {
-        confEl.innerText = '~ Medium confidence — please verify';
-        confEl.classList.add('conf-med');
       } else {
-        confEl.innerText = '⚠️ Low confidence — please verify carefully';
-        confEl.classList.add('conf-low');
+        confEl.innerText = `~ ${candidates.length} match(es) found — please verify`;
+        confEl.classList.add('conf-med');
       }
 
       document.body.classList.add('modal-open');
       document.getElementById('badgeConfirmModal').style.display = 'flex';
 
       requestAnimationFrame(() => {
-        const nameInput = document.getElementById('badgeNameInput');
         nameInput.focus();
         nameInput.select();
       });
@@ -1739,11 +1738,11 @@
     function closeBadgeConfirmModal() {
       document.body.classList.remove('modal-open');
       document.getElementById('badgeConfirmModal').style.display = 'none';
-      pendingBadgeScan = null;
+      badgeScanState = null;
     }
 
     function confirmBadgeScan() {
-      if (!pendingBadgeScan) return;
+      if (!badgeScanState) return;
       const nameInput = document.getElementById('badgeNameInput');
       const finalName = nameInput.value.trim();
       if (!finalName) {
@@ -1753,8 +1752,8 @@
         return;
       }
 
-      const sectionType = pendingBadgeScan.sectionType;
-      const curTime = pendingBadgeScan.time || getNow24H();
+      const sectionType = badgeScanState.sectionType;
+      const curTime = badgeScanState.time || getNow24H();
       const fb = document.getElementById('ocrFeedback');
 
       switchForm(sectionType);
@@ -1790,7 +1789,7 @@
     }
 
     function retryBadgeScan() {
-      const inputEl = pendingBadgeScan ? pendingBadgeScan.inputEl : null;
+      const inputEl = badgeScanState ? badgeScanState.inputEl : null;
       closeBadgeConfirmModal();
       if (inputEl) {
         inputEl.value = '';
