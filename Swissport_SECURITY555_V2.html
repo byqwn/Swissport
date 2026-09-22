@@ -1477,6 +1477,14 @@
     // in a single tap on "Confirm & Log" — nothing typed at all.
     // ============================================================================
 
+    function badgeCloneCanvas(canvas) {
+      const clone = document.createElement('canvas');
+      clone.width = canvas.width;
+      clone.height = canvas.height;
+      clone.getContext('2d').drawImage(canvas, 0, 0);
+      return clone;
+    }
+
     function badgeOrientCanvas(img) {
       // NOTE: this used to force-rotate any portrait-shaped photo 90°, assuming a tall
       // photo must mean a landscape card was captured sideways. Verified against a real
@@ -1619,19 +1627,26 @@
       const windowSum = (tx0, ty0, tx1, ty1) =>
         integral[ty1 * stride + tx1] - integral[ty0 * stride + tx1] - integral[ty1 * stride + tx0] + integral[ty0 * stride + tx0];
 
-      // ID photos are typically ~15-35% of the badge's width — try a few plausible sizes
-      // rather than assume one, since photo framing/zoom varies shot to shot.
+      // ID photos vary hugely in how much of the frame they fill — a badge photographed
+      // close-up vs. a promotional shot with lanyard/background/multiple cards visible can
+      // differ 5x in relative face size. Verified empirically against real badge photos:
+      // measured actual best-fit window at ~6% of canvas width in one case, far below what
+      // was tried before (search started at 16% and never found it, always returning null).
+      // A square window also fits a circular photo crop noticeably better than a tall
+      // passport-style rectangle, so both aspects are tried.
       let best = null;
-      for (const wFrac of [0.16, 0.22, 0.28, 0.34]) {
-        const winWTiles = Math.max(2, Math.round((w * wFrac) / tile));
-        const winHTiles = Math.max(2, Math.round(winWTiles * 1.25)); // passport-photo-ish aspect
-        if (winWTiles >= cols || winHTiles >= rows) continue;
-        for (let ty0 = 0; ty0 + winHTiles <= rows; ty0 += 2) {
-          for (let tx0 = 0; tx0 + winWTiles <= cols; tx0 += 2) {
-            const sum = windowSum(tx0, ty0, tx0 + winWTiles, ty0 + winHTiles);
-            const avg = sum / (winWTiles * winHTiles);
-            if (!best || avg > best.avg) {
-              best = { avg, tx0, ty0, tx1: tx0 + winWTiles, ty1: ty0 + winHTiles };
+      for (const wFrac of [0.06, 0.08, 0.10, 0.13, 0.16, 0.20, 0.26, 0.32]) {
+        for (const aspect of [1.0, 1.25]) {
+          const winWTiles = Math.max(2, Math.round((w * wFrac) / tile));
+          const winHTiles = Math.max(2, Math.round(winWTiles * aspect));
+          if (winWTiles >= cols || winHTiles >= rows) continue;
+          for (let ty0 = 0; ty0 + winHTiles <= rows; ty0 += 2) {
+            for (let tx0 = 0; tx0 + winWTiles <= cols; tx0 += 2) {
+              const sum = windowSum(tx0, ty0, tx0 + winWTiles, ty0 + winHTiles);
+              const avg = sum / (winWTiles * winHTiles);
+              if (!best || avg > best.avg) {
+                best = { avg, tx0, ty0, tx1: tx0 + winWTiles, ty1: ty0 + winHTiles };
+              }
             }
           }
         }
@@ -1640,7 +1655,7 @@
       // Require a meaningful concentration of skin-toned pixels — otherwise this photo
       // likely has no visible face in frame (badly cropped, glare, etc.) and the caller
       // should fall back to scoring without a positional bonus rather than trust noise.
-      if (!best || best.avg < 0.12) return null;
+      if (!best || best.avg < 0.18) return null;
 
       return {
         x0: best.tx0 * tile, y0: best.ty0 * tile,
@@ -1734,7 +1749,7 @@
       badgeGetWorker().catch(() => {}); // fire-and-forget; real errors surface at scan time
     }
 
-    async function badgeRunOCR(canvas, faceRegion, onProgress) {
+    async function badgeRunOCR(rawCanvas, processedCanvas, faceRegion, onProgress) {
       const withTimeout = (p, ms) => Promise.race([
         p,
         new Promise((_, reject) => setTimeout(() => reject(new Error('Scan is taking too long on this connection')), ms))
@@ -1752,16 +1767,32 @@
       }
 
       try {
-        // Sparse-text mode is built for scattered text around a photo/logo — exactly an
-        // ID badge's layout — so it's tried first; a uniform-block pass backs it up.
-        await worker.setParameters({ tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZ '-", tessedit_pageseg_mode: '11' });
-        let res = await withTimeout(worker.recognize(canvas), 20000);
+        // Uppercase-only used to be assumed here because GACA/Swissport badges print the
+        // name in ALL CAPS — but plenty of company badges print it in Title Case ("Martin
+        // Kularthan"), and forcing that glyph shape through an uppercase-only whitelist was
+        // producing near-total garbage (confidence ~0 on almost every letter). Both cases
+        // are now allowed; everything downstream already normalizes to uppercase for matching.
+        await worker.setParameters({ tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz '-", tessedit_pageseg_mode: '11' });
+
+        // Pass 1: the plain photo as captured. Best for already-clean, high-contrast cards
+        // (a crisp digital template, a well-lit straight-on shot) — the adaptive threshold
+        // in passes 2-3 is tuned to rescue noisy real-world photos, but can just as easily
+        // erase large or light-weight lettering that never needed rescuing.
+        let res = await withTimeout(worker.recognize(rawCanvas), 20000);
         let candidates = badgeRankNameCandidates(res.data.words, faceRegion);
 
+        // Pass 2: the lighting/watermark-corrected version, for badges where sun glare,
+        // shadow, or a security watermark actually needed cleaning up.
         if (candidates.length === 0) {
           if (onProgress) onProgress('🔁 Refining scan mode...');
+          res = await withTimeout(worker.recognize(processedCanvas), 20000);
+          candidates = badgeRankNameCandidates(res.data.words, faceRegion);
+        }
+
+        // Pass 3: uniform-block segmentation as a last resort, still on the corrected image.
+        if (candidates.length === 0) {
           await worker.setParameters({ tessedit_pageseg_mode: '6' });
-          res = await withTimeout(worker.recognize(canvas), 20000);
+          res = await withTimeout(worker.recognize(processedCanvas), 20000);
           candidates = badgeRankNameCandidates(res.data.words, faceRegion);
         }
         return candidates;
@@ -1814,10 +1845,15 @@
         // Locate the headshot while color is still intact — thresholding below converts
         // everything to black/white and would erase the skin-tone signal this needs.
         const faceRegion = badgeFindFaceRegion(canvas);
+        // Keep an unprocessed copy: the adaptive threshold below is tuned to rescue noisy
+        // real-world photos (glare, shadows, security watermarks) but can actually erase
+        // large/light-weight lettering on an already-clean, high-contrast card (a crisp
+        // stock template photographed straight-on, for example) — so both get tried.
+        const rawCanvas = badgeCloneCanvas(canvas);
         badgeEvenOutLighting(canvas);
 
         if (fb) fb.innerText = '🔍 Detecting name candidates...';
-        const candidates = await badgeRunOCR(canvas, faceRegion, (msg) => { if (fb) fb.innerText = msg; });
+        const candidates = await badgeRunOCR(rawCanvas, canvas, faceRegion, (msg) => { if (fb) fb.innerText = msg; });
         const previewDataURL = badgeSnapshot(canvas);
 
         if (fb) fb.innerText = candidates.length
