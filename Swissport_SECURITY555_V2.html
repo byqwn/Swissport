@@ -1478,73 +1478,72 @@
     // ============================================================================
 
     function badgeOrientCanvas(img) {
-      const portrait = img.height > img.width * 1.25;
-      const baseW = portrait ? img.height : img.width;
-      const baseH = portrait ? img.width : img.height;
-      // Target ~1600px wide regardless of source size: modern phone cameras shoot
-      // 3000-4000px photos, and feeding that full resolution into per-pixel lighting
-      // correction + OCR is what was making scans time out on mobile — this was
-      // clamped to never go BELOW 1x, so large photos were never actually downscaled.
-      const scale = Math.min(2.2, 1600 / baseW);
+      // NOTE: this used to force-rotate any portrait-shaped photo 90°, assuming a tall
+      // photo must mean a landscape card was captured sideways. Verified against a real
+      // GACA/Swissport badge (which is itself a PORTRAIT card, photographed upright,
+      // text already reading normally) — that assumption was flipping correctly-oriented
+      // text on its side before OCR ever saw it. The browser already decodes the photo in
+      // the orientation the user actually held their phone in, so no rotation is applied.
+      const w = img.width, h = img.height;
+      // Target ~1600px on the long side regardless of source size: modern phone cameras
+      // shoot 3000-4000px photos, and feeding that full resolution into per-pixel
+      // thresholding + OCR is what was making scans time out on mobile.
+      const scale = Math.min(2.2, 1600 / Math.max(w, h));
 
       const canvas = document.createElement('canvas');
-      canvas.width = Math.round(baseW * scale);
-      canvas.height = Math.round(baseH * scale);
+      canvas.width = Math.round(w * scale);
+      canvas.height = Math.round(h * scale);
       const ctx = canvas.getContext('2d');
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-      if (portrait) {
-        ctx.translate(canvas.width / 2, canvas.height / 2);
-        ctx.rotate(Math.PI / 2);
-        ctx.drawImage(img, -canvas.height / 2, -canvas.width / 2, canvas.height, canvas.width);
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
-      } else {
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      }
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
       return canvas;
     }
 
-    // Tile-based brightness normalization: a badge photographed outdoors can have a
-    // sun-glared corner and a shadowed corner in the same frame, so one global
-    // contrast fix isn't enough — each tile gets stretched to full contrast on its
-    // own, which handles both direct sunlight and low-light/night captures alike.
+    // Local adaptive thresholding (Bernsen-style): for every pixel, compare it against the
+    // average brightness of its own neighborhood (via an integral image, so this stays O(1)
+    // per pixel) and keep only what's meaningfully darker than its surroundings as ink.
+    // Verified against a real GACA badge with a repeating semi-transparent "GACA" security
+    // watermark tiled across the whole card, overlapping the name directly — a single global
+    // or per-tile contrast stretch (the previous approach) actually amplified that watermark
+    // instead of suppressing it. This local-mean method flattens the faint, spread-out
+    // watermark to white while keeping the solid black printed name crisp, and it evens out
+    // sunlight glare / low-light shadow the same way one global fix can't.
     function badgeEvenOutLighting(canvas) {
       const ctx = canvas.getContext('2d');
       const w = canvas.width, h = canvas.height;
       const frame = ctx.getImageData(0, 0, w, h);
       const px = frame.data;
 
-      const gray = new Float32Array(w * h);
+      const gray = new Float64Array(w * h);
       for (let i = 0, p = 0; p < px.length; p += 4, i++) {
         gray[i] = px[p] * 0.299 + px[p + 1] * 0.587 + px[p + 2] * 0.114;
       }
 
-      const tile = 40;
-      const tilesX = Math.ceil(w / tile), tilesY = Math.ceil(h / tile);
-      const lo = new Float32Array(tilesX * tilesY).fill(255);
-      const hi = new Float32Array(tilesX * tilesY).fill(0);
-
-      for (let y = 0; y < h; y += 2) {
-        const ty = (y / tile) | 0;
-        for (let x = 0; x < w; x += 2) {
-          const tx = (x / tile) | 0;
-          const idx = ty * tilesX + tx;
-          const v = gray[y * w + x];
-          if (v < lo[idx]) lo[idx] = v;
-          if (v > hi[idx]) hi[idx] = v;
+      // Summed-area table (padded by one row/col of zeros) for O(1) box-sum lookups.
+      const stride = w + 1;
+      const integral = new Float64Array(stride * (h + 1));
+      for (let y = 0; y < h; y++) {
+        let rowSum = 0;
+        const rowBase = (y + 1) * stride;
+        const prevRowBase = y * stride;
+        for (let x = 0; x < w; x++) {
+          rowSum += gray[y * w + x];
+          integral[rowBase + x + 1] = integral[prevRowBase + x + 1] + rowSum;
         }
       }
 
+      const radius = 15; // ~31px window: big enough to average out the tiled watermark, small enough to track letter strokes
+      const bias = 12;   // how much darker than the local average a pixel must be to count as ink
+
       const out = new Uint8ClampedArray(px.length);
       for (let y = 0; y < h; y++) {
-        const ty = (y / tile) | 0;
+        const y0 = Math.max(0, y - radius), y1 = Math.min(h, y + radius + 1);
         for (let x = 0; x < w; x++) {
-          const tx = (x / tile) | 0;
-          const idx = ty * tilesX + tx;
-          const spread = Math.max(30, hi[idx] - lo[idx]);
-          let v = ((gray[y * w + x] - lo[idx]) / spread) * 255;
-          v = v < 0 ? 0 : (v > 255 ? 255 : v);
+          const x0 = Math.max(0, x - radius), x1 = Math.min(w, x + radius + 1);
+          const boxSum = integral[y1 * stride + x1] - integral[y0 * stride + x1] - integral[y1 * stride + x0] + integral[y0 * stride + x0];
+          const localMean = boxSum / ((x1 - x0) * (y1 - y0));
+          const v = gray[y * w + x] < (localMean - bias) ? 0 : 255;
           const p = (y * w + x) * 4;
           out[p] = out[p + 1] = out[p + 2] = v;
           out[p + 3] = 255;
