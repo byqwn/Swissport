@@ -100,9 +100,9 @@ async function startCamera() {
 }
 
 async function initTesseract() {
-    // تحميل العامل (Worker) مسبقاً للسرعة
-    statusText.innerText = "جاري تحميل Tesseract (قد يأخذ وقتاً)...";
-    await Tesseract.createWorker('eng');
+   statusText.innerText = "جاري تحميل Tesseract (قد يأخذ وقتاً)...";
+    // *** هذا السطر يقوم بتحميل المحرك في الخلفية ***
+    await Tesseract.createWorker('eng'); 
     isTesseractReady = true;
     checkReadyStatus();
 }
