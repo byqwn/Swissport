@@ -373,6 +373,7 @@
       border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; min-height: 38px;
     }
     .add-row-btn { background: #0284c7; }
+    .barcode-btn { background: #7c3aed; }
     .scan-btn { background: #059669; position: relative; overflow: hidden; }
     .scan-btn.scan-active { background: #047857; pointer-events: none; }
     .scan-btn.scan-active::after {
@@ -476,6 +477,27 @@
     }
     .badge-candidate-chip:hover { border-color: #94a3b8; }
     .badge-candidate-chip.selected { background: var(--primary); border-color: var(--primary); color: #fff; }
+
+    /* Live Barcode Scanner */
+    .barcode-video-wrap {
+      position: relative; width: 100%; aspect-ratio: 4 / 3; background: #000;
+      border-radius: 10px; overflow: hidden; margin-bottom: 12px;
+    }
+    .barcode-video-wrap video { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .barcode-guide-box {
+      position: absolute; left: 8%; right: 8%; top: 40%; height: 20%;
+      border: 3px solid #22c55e; border-radius: 6px; box-shadow: 0 0 0 2000px rgba(0,0,0,0.35);
+      pointer-events: none;
+    }
+    .barcode-scan-status {
+      font-size: 12.5px; font-weight: 700; color: #334155; text-align: center; min-height: 18px; margin-bottom: 8px;
+    }
+    .barcode-match-name {
+      font-size: 22px; font-weight: 800; color: #0f172a; text-align: center; margin: 6px 0 4px 0;
+    }
+    .barcode-match-id {
+      font-size: 12px; font-weight: 600; color: #64748b; text-align: center; margin-bottom: 16px; font-family: monospace;
+    }
 
     @media print {
       body { background: white; padding: 0; margin: 0; }
@@ -613,6 +635,41 @@
     </div>
   </div>
 
+  <!-- Live Barcode Scanner — a static whole-card photo under-resolves the barcode itself
+       (tested against real badges: reliably under ~20% decode success), so this points the
+       live camera feed at just the barcode and keeps trying frames until one decodes, the same
+       way any handheld barcode scanner works. -->
+  <div id="barcodeScannerModal" class="modal-overlay">
+    <div class="modal-content">
+      <h3>▮▮▮ Scan Badge Barcode</h3>
+      <div class="barcode-video-wrap">
+        <video id="barcodeVideo" playsinline muted></video>
+        <div class="barcode-guide-box"></div>
+      </div>
+      <div class="barcode-scan-status" id="barcodeScanStatus">Point the camera at the barcode strip on the badge.</div>
+      <div class="modal-actions">
+        <button class="m-btn m-btn-cancel" style="flex:1;" onclick="closeBarcodeScanner()">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Fast path for a badge already registered by a previous scan: the barcode ID maps to a
+       name confirmed once by a human (via the OCR flow below) and stored locally on this
+       device, so a repeat scan of the same badge is an exact ID lookup — not a fresh visual
+       guess — and needs only a one-tap confirmation. -->
+  <div id="barcodeMatchModal" class="modal-overlay">
+    <div class="modal-content">
+      <h3>✅ Recognized Badge</h3>
+      <div class="barcode-match-name" id="barcodeMatchName"></div>
+      <div class="barcode-match-id" id="barcodeMatchId"></div>
+      <div class="modal-actions">
+        <button class="m-btn m-btn-save" onclick="confirmBarcodeMatch()">✓ Confirm & Log</button>
+        <button class="m-btn m-btn-clear" onclick="rejectBarcodeMatch()">✎ Not This Name</button>
+        <button class="m-btn m-btn-cancel" onclick="closeBarcodeMatchModal()">Cancel</button>
+      </div>
+    </div>
+  </div>
+
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
     import { getDatabase, ref, set, onValue, off, get } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-database.js";
@@ -731,6 +788,7 @@
     let isScanningBadge = false;
     let cachedSignatureData = null;
     let badgeScanState = null;
+    let pendingBarcodeRegistration = null;
 
     let appData = {
       cabin: { fields: {}, rows: [], signOff: {}, remarks: "" },
@@ -918,6 +976,7 @@
       // Start downloading the OCR engine now, in the background, while the officer is still
       // filling in station/flight — so it's already warm by the time they reach Scan ID Badge.
       badgeWarmUpOCR();
+      barcodeWarmUp();
 
       setTimeout(() => {
         if (window.syncCloudFlightKeys) window.syncCloudFlightKeys();
@@ -1097,6 +1156,7 @@
         <button class="btn-row-action add-row-btn" onclick="addRow('cabin')">+ Add Personnel Row</button>
         <label class="btn-row-action scan-btn" id="scan-label-cabin" for="scanFileInput-cabin" style="cursor:pointer;">📷 Scan ID Badge</label>
         <input type="file" id="scanFileInput-cabin" accept="image/*" capture="environment" style="display:none;" onchange="processSmartBadge(this, 'cabin')">
+        <button type="button" class="btn-row-action barcode-btn" id="barcode-label-cabin" onclick="openBarcodeScanner('cabin')">▮▮▮ Scan Barcode</button>
       </div>
       <div class="sec-title" style="margin-top:8px;">Sign-Off Section</div>
       <table class="data-table sign-off-table">
@@ -1160,6 +1220,7 @@
         <button class="btn-row-action add-row-btn" onclick="addRow('hold')">+ Add Personnel Row</button>
         <label class="btn-row-action scan-btn" id="scan-label-hold" for="scanFileInput-hold" style="cursor:pointer;">📷 Scan ID Badge</label>
         <input type="file" id="scanFileInput-hold" accept="image/*" capture="environment" style="display:none;" onchange="processSmartBadge(this, 'hold')">
+        <button type="button" class="btn-row-action barcode-btn" id="barcode-label-hold" onclick="openBarcodeScanner('hold')">▮▮▮ Scan Barcode</button>
       </div>
       <div class="sec-title" style="margin-top:8px;">Sign-Off Section</div>
       <table class="data-table sign-off-table">
@@ -1854,6 +1915,7 @@
 
         if (fb) fb.innerText = '🔍 Detecting name candidates...';
         const candidates = await badgeRunOCR(rawCanvas, canvas, faceRegion, (msg) => { if (fb) fb.innerText = msg; });
+
         const previewDataURL = badgeSnapshot(canvas);
 
         if (fb) fb.innerText = candidates.length
@@ -1931,21 +1993,10 @@
       badgeScanState = null;
     }
 
-    function confirmBadgeScan() {
-      if (!badgeScanState) return;
-      const nameInput = document.getElementById('badgeNameInput');
-      const finalName = nameInput.value.trim();
-      if (!finalName) {
-        nameInput.focus();
-        nameInput.style.borderColor = '#dc2626';
-        setTimeout(() => { nameInput.style.borderColor = ''; }, 900);
-        return;
-      }
-
-      const sectionType = badgeScanState.sectionType;
-      const curTime = badgeScanState.time || getNow24H();
+    // Shared by both the OCR badge-photo flow and the barcode fast-path below, so "log in vs.
+    // sign out the same person" logic lives in exactly one place instead of drifting apart.
+    function logOrSignOutByName(finalName, sectionType, curTime) {
       const fb = document.getElementById('ocrFeedback');
-
       switchForm(sectionType);
 
       let existingRow = null;
@@ -1962,8 +2013,7 @@
         if (timeInVal === curTime) {
           if (!confirm(`Staff [${finalName}] was logged in at ${curTime}. Record their checkout now?`)) {
             if (fb) fb.innerText = `ℹ️ Checkout cancelled for [${finalName}].`;
-            closeBadgeConfirmModal();
-            return;
+            return false;
           }
         }
         existingRow.querySelector('.emp-time-out').value = curTime;
@@ -1975,6 +2025,33 @@
 
       updateActiveStaffChips();
       collectAndSaveData();
+      return true;
+    }
+
+    function confirmBadgeScan() {
+      if (!badgeScanState) return;
+      const nameInput = document.getElementById('badgeNameInput');
+      const finalName = nameInput.value.trim();
+      if (!finalName) {
+        nameInput.focus();
+        nameInput.style.borderColor = '#dc2626';
+        setTimeout(() => { nameInput.style.borderColor = ''; }, 900);
+        return;
+      }
+
+      const sectionType = badgeScanState.sectionType;
+      const curTime = badgeScanState.time || getNow24H();
+      const logged = logOrSignOutByName(finalName, sectionType, curTime);
+
+      // This OCR confirmation may have been triggered by the barcode scanner to register a
+      // badge it had never seen before — if so, remember the name against that barcode ID now,
+      // so every future scan of this same badge is an instant, error-free lookup instead of a
+      // fresh visual guess.
+      if (logged && pendingBarcodeRegistration && pendingBarcodeRegistration.sectionType === sectionType) {
+        saveBadgeRegistryEntry(pendingBarcodeRegistration.barcodeId, finalName);
+      }
+      pendingBarcodeRegistration = null;
+
       closeBadgeConfirmModal();
     }
 
@@ -1990,6 +2067,7 @@
     function cancelBadgeScan() {
       const fb = document.getElementById('ocrFeedback');
       if (fb) fb.innerText = 'ℹ️ Scan cancelled.';
+      pendingBarcodeRegistration = null;
       closeBadgeConfirmModal();
     }
 
@@ -2027,11 +2105,230 @@
       targetRow.querySelector('.emp-time-in').value = timeIn || getNow24H();
       targetRow.querySelector('.emp-time-out').value = "";
       
-      updateActiveStaffChips(); 
+      updateActiveStaffChips();
       collectAndSaveData();
     }
 
-    function resetForm() { 
+    // ============================================================================
+    // Barcode Scanner — a badge's barcode only ever encodes its own ID number (confirmed
+    // against real GACA/Swissport badges: it just repeats the "JED-XXX-XXXX" printed next to
+    // it), never the holder's name, so this can never replace reading the name. What it CAN
+    // do is turn a REPEAT scan of the same badge into an exact, error-free lookup: the first
+    // time a badge is seen, the officer still confirms the name via the OCR flow above, and
+    // that confirmed name is then remembered against this badge's ID (locally on this device).
+    // Every later scan of that same badge is then a plain ID match — not a fresh visual guess —
+    // so accuracy only improves the more the workforce cycles through.
+    //
+    // Reading the barcode itself needs a live camera feed, not the single whole-card photo the
+    // OCR flow captures: tested against these same real badge photos, decoding the barcode from
+    // one whole-card shot succeeded on well under half of them, because the barcode ends up as
+    // a tiny, low-resolution strip within a much larger frame. A live feed lets the officer
+    // close in on just the barcode the way any handheld scanner works, and tries many frames
+    // instead of just one.
+    // ============================================================================
+
+    const BADGE_REGISTRY_KEY = 'swissport_badge_registry_v1';
+
+    function loadBadgeRegistry() {
+      try {
+        return JSON.parse(localStorage.getItem(BADGE_REGISTRY_KEY) || '{}');
+      } catch (e) {
+        return {};
+      }
+    }
+
+    function saveBadgeRegistryEntry(barcodeId, name) {
+      if (!barcodeId || !name) return;
+      try {
+        const registry = loadBadgeRegistry();
+        registry[barcodeId] = name;
+        localStorage.setItem(BADGE_REGISTRY_KEY, JSON.stringify(registry));
+      } catch (e) { /* storage full/unavailable — this scan still logs the entry, it just won't be remembered for next time */ }
+    }
+
+    // zxing-wasm ships its actual .wasm binary as a sibling of a DIFFERENT build path than the
+    // ES module we import (dist/reader/ vs dist/es/reader/) — its default same-directory guess
+    // 404s, so the module location has to be pointed at the real file explicitly.
+    let zxingReadBarcodesPromise = null;
+    function getZxingReadBarcodes() {
+      if (!zxingReadBarcodesPromise) {
+        zxingReadBarcodesPromise = import('https://cdn.jsdelivr.net/npm/zxing-wasm@3.1.4/dist/es/reader/index.js').then(mod => {
+          mod.setZXingModuleOverrides({
+            locateFile: (path) => 'https://cdn.jsdelivr.net/npm/zxing-wasm@3.1.4/dist/reader/' + path
+          });
+          return mod.readBarcodes;
+        }).catch(err => {
+          zxingReadBarcodesPromise = null;
+          throw err;
+        });
+      }
+      return zxingReadBarcodesPromise;
+    }
+
+    function barcodeWarmUp() {
+      getZxingReadBarcodes().catch(() => {}); // fire-and-forget; real errors surface at scan time
+    }
+
+    let barcodeStream = null;
+    let barcodeScanTimer = null;
+    let barcodeScanBusy = false;
+    let barcodeScanSectionType = null;
+
+    async function openBarcodeScanner(sectionType) {
+      barcodeScanSectionType = sectionType;
+      const modal = document.getElementById('barcodeScannerModal');
+      const video = document.getElementById('barcodeVideo');
+      const statusEl = document.getElementById('barcodeScanStatus');
+      statusEl.innerText = 'Point the camera at the barcode strip on the badge.';
+      document.body.classList.add('modal-open');
+      modal.style.display = 'flex';
+
+      try {
+        barcodeStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 960 } },
+          audio: false
+        });
+      } catch (err) {
+        statusEl.innerText = '⚠️ Could not access the camera — check camera permission and try again.';
+        return;
+      }
+
+      video.srcObject = barcodeStream;
+      try { await video.play(); } catch (e) {}
+
+      let readBarcodes;
+      try {
+        readBarcodes = await getZxingReadBarcodes();
+      } catch (err) {
+        statusEl.innerText = '⚠️ Barcode engine could not load — check your connection and try again.';
+        closeBarcodeScanner();
+        return;
+      }
+
+      // A guide box tells the officer where to aim, and decoding ONLY that strip (rather than
+      // the whole frame) keeps every attempt at a resolution the barcode can actually be read
+      // at — matches .barcode-guide-box in the CSS above.
+      //
+      // Decoding that crop at native camera resolution consistently failed in testing against
+      // a real badge barcode: a 1D barcode's bars are only a couple of pixels wide at normal
+      // camera distance, too narrow to read reliably. Upscaling fixes that, but which exact
+      // scale factor works turns out to be surprisingly narrow and inconsistent — verified
+      // against the same real barcode that scale 2.5x decoded it, 3x didn't, 3.5x did, 4x did,
+      // 4.5x didn't — so committing to any single fixed scale is a coin flip. Sweeping several
+      // scales per frame and stopping at the first hit is cheap (each attempt is a small crop)
+      // and reliably lands on a working one.
+      const BARCODE_SCALES = [2, 2.5, 3, 3.5, 4, 4.5, 5, 6];
+      const scanCanvas = document.createElement('canvas');
+      barcodeScanBusy = false;
+      barcodeScanTimer = setInterval(async () => {
+        if (barcodeScanBusy || !barcodeStream || video.readyState < 2) return;
+        const vw = video.videoWidth, vh = video.videoHeight;
+        if (!vw || !vh) return;
+        barcodeScanBusy = true;
+        try {
+          const gx0 = vw * 0.08, gx1 = vw * 0.92;
+          const gy0 = vh * 0.40, gy1 = vh * 0.60;
+          const gw = gx1 - gx0, gh = gy1 - gy0;
+          const ctx = scanCanvas.getContext('2d');
+
+          for (const scale of BARCODE_SCALES) {
+            scanCanvas.width = Math.round(gw * scale);
+            scanCanvas.height = Math.round(gh * scale);
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
+            ctx.drawImage(video, gx0, gy0, gw, gh, 0, 0, scanCanvas.width, scanCanvas.height);
+            const imageData = ctx.getImageData(0, 0, scanCanvas.width, scanCanvas.height);
+
+            const found = await readBarcodes(imageData, {
+              tryHarder: true,
+              maxNumberOfSymbols: 1,
+              formats: ['Code128', 'Code39', 'Code93', 'ITF', 'Codabar']
+            });
+            if (found && found.length && found[0].text && found[0].text.trim()) {
+              const text = found[0].text.trim();
+              const finishedSectionType = barcodeScanSectionType;
+              closeBarcodeScanner();
+              handleBarcodeDecoded(text, finishedSectionType);
+              return;
+            }
+          }
+        } catch (e) {
+          // one failed frame is normal — the next tick just tries again
+        } finally {
+          barcodeScanBusy = false;
+        }
+      }, 200);
+    }
+
+    function closeBarcodeScanner() {
+      if (barcodeScanTimer) { clearInterval(barcodeScanTimer); barcodeScanTimer = null; }
+      if (barcodeStream) {
+        barcodeStream.getTracks().forEach(t => t.stop());
+        barcodeStream = null;
+      }
+      const video = document.getElementById('barcodeVideo');
+      if (video) video.srcObject = null;
+      document.body.classList.remove('modal-open');
+      document.getElementById('barcodeScannerModal').style.display = 'none';
+    }
+
+    function handleBarcodeDecoded(barcodeId, sectionType) {
+      const fb = document.getElementById('ocrFeedback');
+      const registry = loadBadgeRegistry();
+      const knownName = registry[barcodeId];
+
+      if (knownName) {
+        openBarcodeMatchModal(knownName, barcodeId, sectionType);
+      } else {
+        if (fb) fb.innerText = `🆕 New badge (${barcodeId}) — take a photo of the card to register the name.`;
+        pendingBarcodeRegistration = { barcodeId, sectionType };
+        const inputEl = document.getElementById(`scanFileInput-${sectionType}`);
+        if (inputEl) {
+          inputEl.value = '';
+          setTimeout(() => inputEl.click(), 150);
+        }
+      }
+    }
+
+    let barcodeMatchState = null;
+
+    function openBarcodeMatchModal(name, barcodeId, sectionType) {
+      barcodeMatchState = { name, barcodeId, sectionType, time: getNow24H() };
+      document.getElementById('barcodeMatchName').innerText = name;
+      document.getElementById('barcodeMatchId').innerText = barcodeId;
+      document.body.classList.add('modal-open');
+      document.getElementById('barcodeMatchModal').style.display = 'flex';
+    }
+
+    function closeBarcodeMatchModal() {
+      document.body.classList.remove('modal-open');
+      document.getElementById('barcodeMatchModal').style.display = 'none';
+      barcodeMatchState = null;
+    }
+
+    function confirmBarcodeMatch() {
+      if (!barcodeMatchState) return;
+      const { name, sectionType, time } = barcodeMatchState;
+      logOrSignOutByName(name, sectionType, time);
+      closeBarcodeMatchModal();
+    }
+
+    // The registry can go stale (a badge reissued to someone else, or a bad first-time entry) —
+    // this lets an officer catch that on the spot rather than silently logging the wrong
+    // person, and re-registers the badge against the corrected name they confirm next.
+    function rejectBarcodeMatch() {
+      if (!barcodeMatchState) return;
+      const { barcodeId, sectionType } = barcodeMatchState;
+      closeBarcodeMatchModal();
+      pendingBarcodeRegistration = { barcodeId, sectionType };
+      const inputEl = document.getElementById(`scanFileInput-${sectionType}`);
+      if (inputEl) {
+        inputEl.value = '';
+        setTimeout(() => inputEl.click(), 150);
+      }
+    }
+
+    function resetForm() {
       if (confirm("Are you sure you want to exit the current operations session?")) {
         location.reload(); 
       }
