@@ -1,217 +1,2713 @@
 <!DOCTYPE html>
-<html lang="ar" dir="rtl">
+<html lang="en" dir="ltr">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ماسح البطاقات المطور (GACA-ROI)</title>
-    
-    <!-- تحميل Tesseract.js و OpenCV.js (محلياً بالكامل للخصوصية والسرعة) -->
-    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-    <script async src="https://docs.opencv.org/4.x/opencv.js" onload="onOpenCvReady()"></script>
-    
-    <style>
-        body { font-family: system-ui, sans-serif; text-align: center; background: #f0f2f5; margin: 0; padding: 20px; }
-        .container { display: flex; flex-direction: column; align-items: center; gap: 15px; max-width: 480px; margin: 0 auto; }
-        .video-wrapper { position: relative; width: 100%; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.15); background: #000; }
-        video { width: 100%; display: block; }
-        
-        /* إطار توجيه برتقالي للمحاذاة والتركيز على منطقة النص والباركود */
-        .guide-box {
-            position: absolute;
-            top: 50%; left: 50%;
-            transform: translate(-50%, -50%);
-            width: 85%; height: 60%;
-            border: 2px dashed #ff9800;
-            border-radius: 8px;
-            box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
-            pointer-events: none;
-            display: flex;
-            align-items: flex-end;
-            justify-content: center;
-            padding-bottom: 20px;
-        }
-        .guide-text { color: #fff; background: rgba(0,0,0,0.7); padding: 5px 10px; border-radius: 4px; font-size: 0.8rem; }
-
-        button { background: #28a745; color: white; border: none; padding: 12px 24px; font-size: 1rem; font-weight: bold; border-radius: 8px; cursor: pointer; transition: 0.2s; }
-        button:disabled { background: #b0bec5; cursor: not-allowed; }
-        
-        #result { font-size: 1.3rem; font-weight: bold; color: #1b5e20; background: #e8f5e9; padding: 12px; border-radius: 8px; border: 1px solid #a5d6a7; width: 100%; box-sizing: border-box; min-height: 50px;}
-        #status { color: #555; font-size: 0.9rem; }
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover">
+  <meta name="theme-color" content="#080c16">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Swissport Aviation Security Portal</title>
+  
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  
+  <style>
+    :root {
+      --primary: #c8102e;
+      --primary-glow: #ff1e42;
+      --primary-dark: #8b081c;
+      --panel-glass: rgba(13, 19, 33, 0.94);
+      --accent-cyan: #0284c7;
+      --border-hud: rgba(200, 16, 46, 0.35);
+      --success: #10b981;
+      --danger: #ef4444;
+      --text-main: #0f172a;
     }
-    </style>
+    * { 
+      box-sizing: border-box; 
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; 
+      -webkit-tap-highlight-color: transparent;
+    }
+    body { 
+      background: #080c16;
+      background-image: 
+        radial-gradient(circle at 50% -10%, rgba(200, 16, 46, 0.35) 0%, transparent 60%),
+        radial-gradient(circle at 10% 90%, rgba(2, 132, 199, 0.12) 0%, transparent 40%),
+        linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+      background-size: 100% 100%, 100% 100%, 30px 30px, 30px 30px;
+      margin: 0; 
+      padding: 12px; 
+      color: #0f172a; 
+      min-height: 100vh;
+      padding-bottom: env(safe-area-inset-bottom, 15px);
+    }
+    body.modal-open {
+      overflow: hidden;
+      position: fixed;
+      width: 100%;
+      height: 100%;
+    }
+
+    #setup-screen {
+      max-width: 450px; 
+      margin: 25px auto; 
+      background: var(--panel-glass);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      padding: 32px 24px; 
+      border-radius: 24px;
+      box-shadow: 
+        0 25px 60px rgba(0, 0, 0, 0.8),
+        0 0 0 1px rgba(255, 255, 255, 0.08),
+        0 0 35px rgba(200, 16, 46, 0.2); 
+      text-align: center; 
+      color: #f8fafc;
+      position: relative;
+      overflow: hidden;
+    }
+    #setup-screen::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0; height: 3px;
+      background: linear-gradient(90deg, transparent, var(--primary), var(--primary-glow), transparent);
+    }
+    
+    .brand-shield {
+      width: 58px;
+      height: 58px;
+      margin: 0 auto 10px auto;
+      background: linear-gradient(145deg, #161f33, #0b1120);
+      border: 1px solid var(--border-hud);
+      border-radius: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 0 20px rgba(200, 16, 46, 0.25);
+    }
+    .brand-title {
+      font-size: 28px;
+      font-weight: 900;
+      letter-spacing: 1.5px;
+      color: #ffffff;
+      text-transform: uppercase;
+      line-height: 1;
+      display: inline-flex;
+      align-items: center;
+      gap: 2px;
+    }
+    .brand-title span { color: var(--primary); }
+    .brand-dot {
+      width: 9px;
+      height: 9px;
+      background: var(--primary);
+      border-radius: 50%;
+      margin-left: 3px;
+      box-shadow: 0 0 12px var(--primary-glow);
+      display: inline-block;
+    }
+
+    .tech-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 12px;
+      background: rgba(200, 16, 46, 0.12);
+      border: 1px solid rgba(200, 16, 46, 0.35);
+      border-radius: 20px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      color: #fca5a5;
+      text-transform: uppercase;
+      margin: 10px 0 18px 0;
+    }
+    .tech-pill-dot {
+      width: 6px;
+      height: 6px;
+      background: var(--success);
+      border-radius: 50%;
+      box-shadow: 0 0 8px var(--success);
+    }
+
+    .setup-group {
+      text-align: left;
+      margin-bottom: 12px;
+    }
+    .setup-label {
+      font-size: 10.5px;
+      font-weight: 700;
+      color: #94a3b8;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      margin-bottom: 5px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .setup-input {
+      width: 100%; padding: 12px 14px; 
+      border: 1px solid rgba(255, 255, 255, 0.12); 
+      border-radius: 10px;
+      font-size: 14px; 
+      text-align: left; 
+      outline: none; 
+      font-weight: 600; 
+      color: #ffffff;
+      background: rgba(10, 15, 26, 0.7); 
+      min-height: 46px; 
+      display: block; 
+      transition: all 0.25s ease;
+    }
+    .setup-input:focus { 
+      border-color: var(--primary); 
+      box-shadow: 0 0 0 3px rgba(200, 16, 46, 0.25); 
+      background: rgba(18, 26, 45, 0.95); 
+    }
+
+    .station-records-box {
+      background: rgba(15, 23, 42, 0.75);
+      border: 1px dashed #38bdf8;
+      border-radius: 10px;
+      padding: 10px;
+      margin-bottom: 14px;
+      text-align: left;
+      display: none;
+    }
+    .station-records-label {
+      font-size: 11px;
+      font-weight: 800;
+      color: #38bdf8;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 6px;
+    }
+    .station-records-select {
+      width: 100%;
+      padding: 9px 12px;
+      background: #0284c7;
+      border: none;
+      color: #ffffff;
+      font-size: 12.5px;
+      font-weight: 700;
+      border-radius: 6px;
+      outline: none;
+      cursor: pointer;
+    }
+
+    .role-btn {
+      width: 100%; padding: 16px; margin-top: 14px; border: none; border-radius: 12px; font-size: 15px;
+      font-weight: 800; cursor: pointer; color: #fff; transition: all 0.2s;
+      background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+      box-shadow: 0 6px 20px rgba(200, 16, 46, 0.45);
+      display: flex; align-items: center; justify-content: center; gap: 9px;
+      letter-spacing: 0.5px;
+    }
+    .role-btn:active { transform: scale(0.98); }
+
+    /* Main App Styling */
+    #main-app { display: none; }
+    
+    #db-status-banner {
+      max-width: 1050px;
+      margin: 0 auto 8px auto;
+      padding: 9px 14px;
+      border-radius: 8px;
+      font-size: 12.5px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.06);
+    }
+    .db-status-existing {
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      color: #1d4ed8;
+    }
+    .db-status-new {
+      background: #f0fdf4;
+      border: 1px solid #bbf7d0;
+      color: #15803d;
+    }
+
+    #active-staff-bar {
+      max-width: 1050px; margin: 0 auto 12px auto; background: #ffffff;
+      border-radius: 10px; padding: 12px 16px; color: #1e293b; 
+      box-shadow: 0 4px 12px rgba(0,0,0,0.12); border: 1px solid #e2e8f0;
+      border-top: 3px solid var(--success);
+    }
+    .staff-header { font-size: 13px; font-weight: 800; margin-bottom: 8px; color: #0f172a; }
+    .quick-chips { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; align-items: center; min-height: 38px; }
+    .chip {
+      background: #f1f5f9; border: 1px solid #e2e8f0; padding: 7px 14px;
+      border-radius: 20px; font-size: 12px; color: #334155; cursor: pointer; white-space: nowrap; font-weight: 700;
+      transition: all 0.15s; display: flex; align-items: center; gap: 6px;
+    }
+    .chip:hover { background: #fee2e2; border-color: #fca5a5; color: var(--primary-dark); }
+    .chip-waiting { font-size: 12px; color: #94a3b8; font-weight: 600; }
+    .ocr-feedback { font-size: 12.5px; color: var(--accent-cyan); min-height: 18px; font-weight: 600; margin-top: 6px; }
+
+    /* Hold on Left, Cabin on Right */
+    .nav-bar { 
+      max-width: 1050px; 
+      margin: 0 auto 12px auto; 
+      display: flex; 
+      gap: 10px; 
+    }
+    .tab-btn {
+      flex: 1; padding: 12px 10px; font-size: 13.5px; font-weight: 700; border: none; border-radius: 8px;
+      cursor: pointer; background: #fff; color: #475569; transition: all 0.2s;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1); border: 1px solid #cbd5e1;
+      display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px;
+    }
+    .tab-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); box-shadow: 0 4px 10px rgba(200,16,46,0.35); }
+
+    .sheet-wrapper {
+      max-width: 1050px; margin: 0 auto; overflow-x: auto; -webkit-overflow-scrolling: touch;
+      border-radius: 8px; position: relative;
+    }
+    .sheet-container {
+      background: #fff; padding: 16px; border-radius: 8px; width: 1000px; margin: 0 auto;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.15); border: 1px solid #cbd5e1;
+      transform-origin: top left; transition: transform 0.15s ease;
+    }
+    /* Fades hint that the sheet can be scrolled/pinched horizontally on narrow screens */
+    .sheet-wrapper.scrollable::after {
+      content: '';
+      position: absolute; top: 0; right: 0; bottom: 0; width: 22px;
+      background: linear-gradient(90deg, transparent, rgba(8,12,22,0.12));
+      pointer-events: none; border-radius: 0 8px 8px 0;
+    }
+    .zoom-hint {
+      display: none; max-width: 1050px; margin: 0 auto 8px auto; text-align: center;
+      font-size: 11px; font-weight: 700; color: #94a3b8; letter-spacing: 0.3px;
+    }
+    
+    .header-table { width: 100%; border-collapse: collapse; margin-bottom: 6px; }
+    .header-table td { border: 1px solid #334155; padding: 5px 8px; font-size: 11px; }
+    .logo-cell { text-align: right; width: 170px; }
+    .sheet-brand { font-size: 20px; font-weight: 900; letter-spacing: -0.5px; color: #000; }
+    .sheet-brand span { color: var(--primary); }
+
+    .sec-title {
+      font-size: 11px; font-weight: 700; background: #f1f5f9; padding: 4px 8px;
+      border: 1px solid #334155; margin-top: 5px; text-transform: uppercase; color: #0f172a;
+    }
+
+    table.data-table { width: 100%; border-collapse: collapse; margin-top: -1px; font-size: 11px; table-layout: fixed; }
+    table.data-table th, table.data-table td { border: 1px solid #334155; padding: 4px; text-align: center; vertical-align: middle; }
+    table.data-table th { background: #f8fafc; font-weight: 600; font-size: 10.5px; color: #1e293b; }
+    
+    .field-input {
+      width: 100%; min-height: 25px; border: 1px solid transparent; outline: none; background: transparent;
+      font-size: 12px; font-weight: 500; padding: 2px 4px; color: #0f172a; text-align: center;
+      transition: background 0.2s, border 0.2s; border-radius: 3px; word-break: break-word; white-space: pre-wrap;
+    }
+    .field-input:focus, .field-input:hover { background: #f0fdf4; border-color: #86efac; }
+    .field-input:empty:before { content: attr(placeholder); color: #94a3b8; font-weight: normal; }
+
+    .field-locked {
+      background: #f8fafc !important;
+      font-weight: 700;
+      color: #334155;
+      user-select: none;
+      cursor: not-allowed;
+    }
+
+    .emp-desig-select {
+      width: 100%; border: 1px solid #cbd5e1; outline: none; background: #f8fafc;
+      font-size: 11px; font-weight: 700; padding: 3px; color: #0284c7; text-align: center;
+      border-radius: 4px; cursor: pointer; text-align-last: center;
+    }
+    .emp-desig-select:focus { border-color: var(--primary); background: #fff; }
+
+    /* Enhanced & Enlarged Signature Box */
+    .sign-box {
+      width: 100%; 
+      min-height: 38px; 
+      border: 1px dashed #cbd5e1; 
+      border-radius: 4px;
+      cursor: pointer; 
+      display: flex; 
+      align-items: center; 
+      justify-content: center;
+      background: #fafafa; 
+      position: relative; 
+      padding: 2px 4px;
+      transition: background-color 0.15s;
+    }
+    .sign-box:hover { background: #f0fdf4; border-color: #22c55e; }
+    .sign-box span { font-size: 11px; color: #64748b; font-weight: 600; }
+    .sign-box img { 
+      max-height: 36px; 
+      width: auto; 
+      max-width: 96%; 
+      object-fit: contain; 
+      display: block;
+      filter: contrast(1.15);
+    }
+
+    .clean-field, .time-24 {
+      width: 100%; border: 1px solid transparent; outline: none; background: transparent;
+      font-size: 11.5px; font-weight: 600; padding: 2px; color: #0f172a; text-align: center;
+    }
+    .clean-field:focus, .time-24:focus { background: #eff6ff; border-color: #93c5fd; border-radius: 3px; }
+    .time-24::placeholder { color: #94a3b8; font-weight: normal; font-size: 11px; }
+
+    .auto-remarks {
+      width: 100%; border: none; outline: none; font-size: 12.5px; padding: 6px; color: #0f172a;
+      resize: vertical; min-height: 55px; background: transparent; text-align: left;
+      line-height: 1.4; white-space: pre-wrap; word-wrap: break-word; overflow-wrap: break-word;
+      font-weight: 500;
+    }
+
+    .action-btn { background: #ef4444; color: white; border: none; border-radius: 4px; padding: 3px 8px; cursor: pointer; font-size: 11px; font-weight: bold; }
+    .btn-row-action {
+      margin-top: 6px; padding: 8px 16px; color: white; border: none;
+      border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; min-height: 38px;
+    }
+    .add-row-btn { background: #0284c7; }
+    .barcode-btn { background: #7c3aed; }
+    .scan-btn { background: #059669; position: relative; overflow: hidden; }
+    .scan-btn.scan-active { background: #047857; pointer-events: none; }
+    .scan-btn.scan-active::after {
+      content: ''; position: absolute; inset: 0;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.35), transparent);
+      animation: scanSweep 1.1s ease-in-out infinite;
+    }
+    @keyframes scanSweep { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
+
+    /* Draws the officer's eye to "Scan ID Badge" after a new barcode is detected — a real tap
+       here (rather than the app silently re-opening the camera on their behalf) is what the fix
+       below relies on: browsers only reliably grant camera/file-picker access in direct response
+       to that fresh tap, not to code running some seconds after the tap that actually got the
+       flow to this point. */
+    .needs-attention {
+      animation: needsAttentionPulse 1s ease-in-out infinite;
+      box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.5);
+    }
+    @keyframes needsAttentionPulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.05); }
+    }
+
+    .toolbar {
+      max-width: 1050px; margin: 14px auto 25px auto; display: flex; gap: 10px; flex-wrap: wrap;
+    }
+    .btn-action {
+      padding: 13px 10px; font-size: 14px; font-weight: 700; border: none; border-radius: 8px;
+      cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; 
+      box-shadow: 0 2px 4px rgba(0,0,0,0.08); transition: background-color 0.15s; min-height: 48px;
+    }
+    .btn-pdf { background: #15803d; color: white; width: calc(50% - 5px); flex: none; }
+    .btn-share { background: #2563eb; color: white; width: calc(50% - 5px); flex: none; }
+    .btn-sync { background: #64748b; color: white; width: calc(75% - 5px); flex: none; pointer-events: none; }
+    .btn-reset { background: #64748b; color: white; width: calc(25% - 5px); flex: none; }
+    
+    @media (max-width: 1050px) {
+      .nav-bar { position: sticky; top: 0; z-index: 500; padding-top: 6px; margin-top: 0; background: #080c16; background: linear-gradient(#080c16 60%, rgba(8,12,22,0)); }
+      .zoom-hint { display: block; }
+      /* Real form controls keep a 16px floor so iOS Safari doesn't auto-zoom on focus */
+      .setup-input, .setup-input::placeholder, #badgeNameInput.badge-name-input { font-size: 16px; }
+    }
+
+    @media (max-width: 600px) {
+      body { padding: 6px; }
+      .btn-pdf, .btn-share { width: 100%; }
+      .btn-sync { width: calc(65% - 5px); font-size: 11.5px; }
+      .btn-reset { width: calc(35% - 5px); font-size: 11.5px; }
+      #setup-screen { margin: 15px auto; padding: 24px 16px; }
+      .tab-btn { font-size: 12px; padding: 11px 6px; }
+      .brand-title { font-size: 24px; }
+      #active-staff-bar { padding: 10px 12px; }
+      .scan-btn { font-size: 12.5px; }
+    }
+
+    @media (max-width: 380px) {
+      .tab-btn { font-size: 10.5px; gap: 3px; }
+      .toolbar { gap: 6px; }
+      .btn-action { padding: 12px 6px; font-size: 12.5px; }
+    }
+
+    .modal-overlay {
+      display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.78);
+      z-index: 99999; align-items: center; justify-content: center; padding: 15px;
+      backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+    }
+    .modal-content {
+      background: white; border-radius: 14px; max-width: 440px; width: 100%;
+      padding: 20px; box-shadow: 0 15px 35px rgba(0,0,0,0.3); text-align: center;
+    }
+    .modal-content h3 { margin: 0 0 10px 0; font-size: 15px; color: #0f172a; font-weight: 700; }
+    .canvas-wrap {
+      border: 2px dashed #94a3b8; border-radius: 8px; background: #fafafa;
+      touch-action: none; margin-bottom: 12px; position: relative;
+    }
+    #signature-pad { width: 100%; height: 180px; display: block; cursor: crosshair; }
+    .modal-actions { display: flex; gap: 8px; justify-content: space-between; }
+    .m-btn {
+      flex: 1; padding: 11px; font-size: 13px; font-weight: 700; border-radius: 6px;
+      border: none; cursor: pointer; min-height: 42px;
+    }
+    .m-btn-save { background: #15803d; color: white; }
+    .m-btn-clear { background: #ef4444; color: white; }
+    .m-btn-cancel { background: #64748b; color: white; }
+
+    /* Badge Scan Confirmation Modal */
+    .badge-preview-wrap {
+      background: #0b1120; border-radius: 10px; padding: 8px; margin-bottom: 12px;
+      border: 1px solid #1e293b;
+    }
+    .badge-preview-wrap img {
+      max-height: 190px; width: 100%; object-fit: contain; border-radius: 6px; display: block;
+    }
+    .badge-confidence {
+      font-size: 11.5px; font-weight: 800; margin-bottom: 10px; text-transform: uppercase;
+      letter-spacing: 0.4px; display: flex; align-items: center; justify-content: center; gap: 6px;
+    }
+    .badge-confidence.conf-high { color: #15803d; }
+    .badge-confidence.conf-med { color: #b45309; }
+    .badge-confidence.conf-low { color: #dc2626; }
+    .badge-modal-label {
+      font-size: 10.5px; font-weight: 700; color: #64748b; text-transform: uppercase;
+      letter-spacing: 0.6px; display: block; margin-bottom: 6px; text-align: left;
+    }
+    .badge-name-input {
+      width: 100%; padding: 13px 14px; border: 2px solid #cbd5e1; border-radius: 10px;
+      font-size: 16px; font-weight: 800; text-align: center; color: #0f172a; outline: none;
+      background: #f8fafc; transition: all 0.2s;
+    }
+    .badge-name-input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(200,16,46,0.15); background: #fff; }
+    .badge-candidate-chips { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-bottom: 12px; }
+    .badge-candidate-chip {
+      padding: 8px 14px; border-radius: 20px; border: 2px solid #cbd5e1; background: #f8fafc;
+      font-size: 13px; font-weight: 700; color: #334155; cursor: pointer; transition: all 0.15s;
+    }
+    .badge-candidate-chip:hover { border-color: #94a3b8; }
+    .badge-candidate-chip.selected { background: var(--primary); border-color: var(--primary); color: #fff; }
+
+    /* Barcode Scanner */
+    .barcode-match-name {
+      font-size: 22px; font-weight: 800; color: #0f172a; text-align: center; margin: 6px 0 4px 0;
+    }
+    .barcode-match-id {
+      font-size: 12px; font-weight: 600; color: #64748b; text-align: center; margin-bottom: 16px; font-family: monospace;
+    }
+
+    @media print {
+      body { background: white; padding: 0; margin: 0; }
+      .nav-bar, .toolbar, .btn-row-action, .action-btn, .modal-overlay, #scanFileInput-cabin, #scanFileInput-hold, .no-print, #setup-screen, #active-staff-bar, #db-status-banner { display: none !important; }
+      .sheet-container { box-shadow: none; border: none; padding: 0; width: 1000px !important; margin: 0 auto !important; }
+      .sheet-wrapper { overflow: visible; width: 100%; }
+      .sign-box { border: none !important; background: transparent !important; }
+      .field-input, .emp-desig-select { border: none !important; background: transparent !important; appearance: none; -webkit-appearance: none; }
+      table { page-break-inside: auto; }
+      tr, td, th, .sec-title, .sign-off-table, .auto-remarks { page-break-inside: avoid !important; }
+      thead { display: table-header-group; }
+    }
+  </style>
 </head>
 <body>
 
-<div class="container">
-    <h2>ماسح رقم بطاقة التعريف (المحلي)</h2>
-    <p id="status">جاري تهيئة النظام محلياً...</p>
-    
-    <div class="video-wrapper">
-        <video id="videoInput" autoplay playsinline muted></video>
-        <div class="guide-box">
-            <span class="guide-text">وجه البطاقة داخل الإطار البرتقالي واضغط التقاط</span>
-        </div>
+  <!-- Official Swissport Entrance with Station-Filtered Database Navigation -->
+  <div id="setup-screen">
+    <div class="brand-shield">
+      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M12 2L3 6V11.5C3 16.8 6.8 21.6 12 23C17.2 21.6 21 16.8 21 11.5V6L12 2Z" fill="#c8102e"/>
+        <path d="M12 5.5L6 8.5V11.8C6 15.3 8.5 18.5 12 19.5C15.5 18.5 18 15.3 18 11.8V8.5L12 5.5Z" fill="#ffffff"/>
+        <path d="M10.5 14.5L8.5 12.5L9.5 11.5L10.5 12.5L14.5 8.5L15.5 9.5L10.5 14.5Z" fill="#c8102e"/>
+      </svg>
     </div>
     
-    <button id="scanBtn" onclick="captureAndScan()" disabled>التقاط وقراءة الرقم (محلي)</button>
+    <div class="brand-title">SWISS<span>PORT</span><div class="brand-dot"></div></div>
+    <div><span class="tech-pill"><span class="tech-pill-dot"></span> AVIATION OPERATIONS CLEARANCE</span></div>
     
-    <div id="result">النتيجة: ---</div>
+    <div class="setup-group">
+      <label class="setup-label"><span>📍</span> Select Airport Station</label>
+      <select id="setup-station" class="setup-input" onchange="handleStationChange(this)">
+        <option value="" disabled selected>Select Airport Station</option>
+        <option value="JED">JED - King Abdulaziz Intl (Jeddah)</option>
+        <option value="RUH">RUH - King Khalid Intl (Riyadh)</option>
+        <option value="DMM">DMM - King Fahd Intl (Dammam)</option>
+        <option value="MED">MED - Prince Mohammad Intl (Medina)</option>
+        <option value="MANUAL">Other Station (Manual Code)...</option>
+      </select>
+      <input type="text" id="setup-station-manual" class="setup-input" placeholder="Enter Station Code (e.g. DXB)" style="display: none; text-transform: uppercase; margin-top: 6px;" oninput="filterFlightsForCurrentStation()">
+    </div>
+
+    <!-- Dynamic Station-Filtered Saved Flights Box -->
+    <div class="station-records-box" id="station-records-box">
+      <div class="station-records-label"><span>📂</span> Saved Flights in <span id="current-station-label">STATION</span>:</div>
+      <select id="station-flights-select" class="station-records-select" onchange="loadStationFlightRecord(this)">
+        <option value="" disabled selected>Choose a saved flight record...</option>
+      </select>
+    </div>
+
+    <div class="setup-group">
+      <label class="setup-label"><span>✈️</span> Flight Number</label>
+      <input type="text" id="setup-flight" class="setup-input" placeholder="Flight No. (e.g. SV105)" style="text-transform: uppercase;" oninput="detectExistingRecord()">
+    </div>
+
+    <div class="setup-group">
+      <label class="setup-label"><span>📅</span> Flight Schedule Date</label>
+      <div style="position: relative; width: 100%;">
+        <input type="text" id="setup-date-display" class="setup-input" style="position: absolute; top: 0; left: 0; margin: 0; pointer-events: none; z-index: 1;" placeholder="DD / MM / YYYY">
+        <input type="date" id="setup-date" class="setup-input" style="margin: 0; opacity: 0; position: relative; z-index: 2; cursor: pointer;" onchange="updateDateDisplay(); detectExistingRecord();">
+      </div>
+    </div>
     
-    <!-- كانفاس خفي لمعالجة الصورة قبل القراءة -->
-    <canvas id="canvas" style="display:none;"></canvas>
-</div>
+    <button class="role-btn btn-cabin" onclick="startApp()">
+      <span id="btn-start-label">⚡ OPEN FLIGHT DISPATCH</span>
+    </button>
+  </div>
 
-<script>
-    let isOpenCvReady = false;
-    let tesseractWorker = null;
-    let extractedNumber = null;
-    
-    const video = document.getElementById('videoInput');
-    const canvas = document.getElementById('canvas');
-    const resultText = document.getElementById('result');
-    const statusText = document.getElementById('status');
-    const scanBtn = document.getElementById('scanBtn');
+  <!-- Operational Portal -->
+  <div id="main-app">
+    <div id="db-status-banner" class="no-print db-status-new">
+      <span id="db-status-icon">✨</span>
+      <span id="db-status-text">Database query active...</span>
+    </div>
 
-    // 1. تهيئة الكاميرا و OpenCV و Tesseract مسبقاً (حبه حبه)
-    function onOpenCvReady() {
-        isOpenCvReady = true;
-        checkReadyStatus();
-    }
+    <div id="active-staff-bar" class="no-print">
+      <div class="staff-header">👥 Active Personnel Inside (Click name to Sign-Out):</div>
+      <div class="quick-chips" id="quick-chips">
+        <span class="chip-waiting">No active personnel registered. Scan badge or add manually below.</span>
+      </div>
+      <div class="ocr-feedback" id="ocrFeedback"></div>
+    </div>
 
-    async function initApp() {
-        try {
-            // تشغيل الكاميرا
-            const stream = await navigator.mediaDevices.getUserMedia({ 
-                video: { facingMode: "environment", width: { ideal: 1280 } } 
-            });
-            video.srcObject = stream;
-            
-            // تهيئة Tesseract محلياً مع وضع Whitelist وقراءة Single Line للسرعة والدقة
-            statusText.innerText = "جاري تهيئة Tesseract محلياً...";
-            tesseractWorker = await Tesseract.createWorker('eng');
-            await tesseractWorker.setParameters({
-                tessedit_char_whitelist: 'JED0123456789-',
-                tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE, 
-            });
-            
-            statusText.innerText = "جاري تحميل OpenCV...";
-            initCamera();
-        } catch (err) {
-            statusText.innerText = "خطأ في التهيئة: " + err.message;
-        }
-    }
+    <!-- Navigation: Hold on LEFT, Cabin on RIGHT -->
+    <div class="nav-bar no-print" id="main-nav-bar">
+      <button class="tab-btn" id="tab-hold" onclick="switchForm('hold')">📦 Hold Control (SA-SEC-0057)</button>
+      <button class="tab-btn active" id="tab-cabin" onclick="switchForm('cabin')">🚪 Cabin Access (SA-SEC-0056)</button>
+    </div>
 
-    function checkReadyStatus() {
-        if (isOpenCvReady && tesseractWorker && video.srcObject) {
-            statusText.innerText = "النظام المحلي جاهز! وجه البطاقة واضغط التقاط.";
-            scanBtn.disabled = false;
-        }
-    }
+    <div class="zoom-hint no-print">↔️ Pinch to zoom in for precise entry · form auto-fits your screen</div>
+    <div class="sheet-wrapper" id="sheet-wrapper-id">
+      <div class="sheet-container form-section" id="section-cabin" style="display: block;"></div>
+      <div class="sheet-container form-section" id="section-hold" style="display: none;"></div>
+    </div>
 
-    initApp();
+    <div class="toolbar no-print">
+      <button class="btn-action btn-pdf" id="btn-pdf" onclick="exportPDF()">📥 Export Merged PDF</button>
+      <button class="btn-action btn-share" id="btn-share" onclick="shareFile()">📲 Share (WhatsApp)</button>
+      <button class="btn-action btn-sync" id="btn-sync">🔴 Connecting...</button>
+      <button class="btn-action btn-reset" onclick="resetForm()">🚪 Exit</button>
+    </div>
+  </div>
 
-    // 2. معالجة OpenCV المحلية: البحث عن الرقم وتنظيف التلميع
-    function preprocessImageForOcr(src) {
-        // تحويل للرمادي
-        let gray = new cv.Mat();
-        cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+  <div id="signModal" class="modal-overlay">
+    <div class="modal-content">
+      <h3>✍️ Officer / Representative Signature</h3>
+      <div class="canvas-wrap">
+        <canvas id="signature-pad"></canvas>
+      </div>
+      <div class="modal-actions">
+        <button class="m-btn m-btn-save" onclick="saveSignature()">Save</button>
+        <button class="m-btn m-btn-clear" onclick="clearCanvas()">Clear</button>
+        <button class="m-btn m-btn-cancel" onclick="closeSignModal()">Cancel</button>
+      </div>
+    </div>
+  </div>
 
-        // تصفية التلميع باستخدام Adaptive Thresholding (البيض والأسود النقي)
-        let thresh = new cv.Mat();
-        cv.adaptiveThreshold(gray, thresh, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 11, 2);
+  <div id="badgeConfirmModal" class="modal-overlay">
+    <div class="modal-content">
+      <h3>🪪 Confirm Badge Identity</h3>
+      <div class="badge-preview-wrap">
+        <img id="badgePreviewImg" alt="Captured badge">
+      </div>
+      <div class="badge-confidence" id="badgeConfidenceLabel"></div>
+      <div class="badge-candidate-chips" id="badgeCandidateChips"></div>
+      <div style="margin-bottom: 14px;">
+        <label class="badge-modal-label">Full Name — tap a match above, or type/edit here</label>
+        <input type="text" id="badgeNameInput" class="badge-name-input" placeholder="Enter full name" autocomplete="off">
+      </div>
+      <div class="modal-actions">
+        <button class="m-btn m-btn-save" onclick="confirmBadgeScan()">✓ Confirm & Log</button>
+        <button class="m-btn m-btn-clear" onclick="retryBadgeScan()">🔄 Rescan</button>
+        <button class="m-btn m-btn-cancel" onclick="cancelBadgeScan()">Cancel</button>
+      </div>
+    </div>
+  </div>
 
-        // البحث عن منطقة النص فوق الباركود
-        let contours = new cv.MatVector();
-        let hierarchy = new cv.Mat();
-        cv.findContours(thresh, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+  <!-- Fast path for a badge already registered by a previous scan: the barcode ID maps to a
+       name confirmed once by a human (via the OCR flow below) and stored locally on this
+       device, so a repeat scan of the same badge is an exact ID lookup — not a fresh visual
+       guess — and needs only a one-tap confirmation. -->
+  <div id="barcodeMatchModal" class="modal-overlay">
+    <div class="modal-content">
+      <h3>✅ Recognized Badge</h3>
+      <div class="barcode-match-name" id="barcodeMatchName"></div>
+      <div class="barcode-match-id" id="barcodeMatchId"></div>
+      <div class="modal-actions">
+        <button class="m-btn m-btn-save" onclick="confirmBarcodeMatch()">✓ Confirm & Log</button>
+        <button class="m-btn m-btn-clear" onclick="rejectBarcodeMatch()">✎ Not This Name</button>
+        <button class="m-btn m-btn-cancel" onclick="closeBarcodeMatchModal()">Cancel</button>
+      </div>
+    </div>
+  </div>
 
-        let roiMat = null;
-        let textRect = null;
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
+    import { getDatabase, ref, set, onValue, off, get } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-database.js";
 
-        // البحث عن المستطيل الأفقي الذي يحتوي على النص JED-XXX-XXXX
-        for (let i = 0; i < contours.size(); ++i) {
-            let cnt = contours.get(i);
-            let rect = cv.boundingRect(cnt);
-            let area = cv.contourArea(cnt);
-            // المعايير: مساحة متوسطة، عرض أكبر من الارتفاع (أفقي)
-            if (area > 1000 && rect.width > rect.height * 1.5) {
-                // نقتطع هذه المنطقة لتحليلها
-                textRect = rect;
-                break; 
-            }
-        }
+    const firebaseConfig = {
+      apiKey: "AIzaSyBMdFB98tkh2JE4MMkx9HCItevw7YqpxOI",
+      authDomain: "swissport-security.firebaseapp.com",
+      databaseURL: "https://swissport-security-default-rtdb.firebaseio.com",
+      projectId: "swissport-security",
+      storageBucket: "swissport-security.firebasestorage.app",
+      messagingSenderId: "736416805696",
+      appId: "1:736416805696:web:356e5b2cfdc59a465900a5"
+    };
 
-        if (textRect) {
-            // اقتطاع منطقة النص (Region of Interest)
-            roiMat = thresh.roi(textRect);
-            // تكبير الصورة قليلاً لتحسين القراءة
-            cv.resize(roiMat, roiMat, new cv.Size(0, 0), 1.5, 1.5, cv.INTER_CUBIC);
-        }
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
 
-        // تنظيف الذاكرة
-        gray.delete(); thresh.delete(); contours.delete(); hierarchy.delete();
+    let activeFirebaseListenerRef = null;
 
-        return roiMat; // نعود بالصورة المعالجة للنص، أو null إذا لم نجدها
-    }
-
-    // 3. التقاط ومعالجة الصورة محلياً
-    async function captureAndScan() {
-        statusText.innerText = "جاري التقاط ومعالجة الصورة محلياً...";
-        resultText.innerText = "النتيجة: جاري المعالجة محلياً...";
-        scanBtn.disabled = true;
-
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(video, 0, 0);
-
-        let src = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
-        let cap = new cv.VideoCapture(video);
-        cap.read(src);
-
-        // أ) تطبيق خوارزمية OpenCV المحلية المخصصة (تصفية التلميع)
-        let processedRoiMat = preprocessImageForOcr(src);
-
-        if (!processedRoiMat) {
-            resultText.innerText = "تعذر تحديد منطقة النص محلياً.";
-            statusText.innerText = "تأكد من إضاءة الغرفة ووضوح البطاقة.";
-            src.delete();
-            scanBtn.disabled = false;
-            return;
-        }
-
-        // ب) رسم الصورة المعالجة نهائياً على الكانفاس للقراءة
-        cv.imshow('canvas', processedRoiMat);
-
-        try {
-            statusText.innerText = "جاري التعرف على النص محلياً...";
-            
-            // ج) قراءة النص المعالج محلياً
-            const { data: { text } } = await tesseractWorker.recognize(canvas);
-            console.log("النص المقروء محلياً:", text);
-
-            // د) تطبيق خوارزمية الخيار الفصل: "ابحث عن JED ومنها يبدأ"
-            const regexPattern = /JED-\d{3}-\d{4}/gi;
-            const matched = text.match(regexPattern);
-
-            if (matched && matched.length > 0) {
-                extractedNumber = matched[0];
-                resultText.innerText = "الرقم المستخرج محلياً: " + extractedNumber;
-                statusText.innerText = "تمت القراءة بنجاح محلياً!";
+    const connectedRef = ref(db, ".info/connected");
+    onValue(connectedRef, (snap) => {
+        const syncBtn = document.getElementById('btn-sync');
+        if(syncBtn) {
+            if (snap.val() === true) {
+                syncBtn.style.background = '#059669';
+                syncBtn.innerText = '🟢 Connected (Live Cloud Sync)';
             } else {
-                resultText.innerText = "تعذر قراءة النمط JED من المنطقة المقصوصة.";
-                statusText.innerText = "تأكد من وضوح الرقم أمام الكاميرا.";
+                syncBtn.style.background = '#ef4444';
+                syncBtn.innerText = '🔴 Offline (Local Safe Cache)';
             }
-        } catch (error) {
-            console.error(error);
-            statusText.innerText = "حدث خطأ أثناء معالجة OCR المحلي.";
-        } finally {
-            src.delete();
-            processedRoiMat.delete();
-            scanBtn.disabled = false;
         }
-    }
-</script>
+    });
 
+    window.sanitizeFirebaseKey = function(key) {
+      if (!key) return "UNKNOWN";
+      return String(key).replace(/[.#$\[\]\/\s]/g, '_');
+    };
+
+    window.firebaseSaveSection = function(station, flight, date, sectionName, sectionData, onSuccess) {
+      const cleanStation = window.sanitizeFirebaseKey(station.trim().toUpperCase());
+      const cleanFlight = window.sanitizeFirebaseKey(flight.trim().toUpperCase());
+      const cleanDate = window.sanitizeFirebaseKey(date.trim());
+      const flightKey = `${cleanStation}_${cleanFlight}_${cleanDate}`;
+      const path = `flights/${flightKey}/sections/${sectionName}`;
+
+      try {
+        localStorage.setItem(`offline_${flightKey}_${sectionName}`, JSON.stringify(sectionData));
+        window.recordFlightHistory(cleanStation, cleanFlight, cleanDate);
+      } catch (e) {
+        if (e.name === 'QuotaExceededError') {
+          window.pruneOldStorage();
+        }
+      }
+
+      set(ref(db, path), sectionData)
+        .then(() => { if(onSuccess) onSuccess(); })
+        .catch((error) => { console.error("Cloud synchronization error:", error); });
+    };
+
+    window.firebaseListenToFlight = function(station, flight, date, callback) {
+      const cleanStation = window.sanitizeFirebaseKey(station.trim().toUpperCase());
+      const cleanFlight = window.sanitizeFirebaseKey(flight.trim().toUpperCase());
+      const cleanDate = window.sanitizeFirebaseKey(date.trim());
+      const flightKey = `${cleanStation}_${cleanFlight}_${cleanDate}`;
+      const dbRef = ref(db, `flights/${flightKey}/sections`);
+
+      if (activeFirebaseListenerRef) {
+        off(activeFirebaseListenerRef);
+      }
+      activeFirebaseListenerRef = dbRef;
+
+      try {
+        const cachedCabin = localStorage.getItem(`offline_${flightKey}_cabin`);
+        const cachedHold = localStorage.getItem(`offline_${flightKey}_hold`);
+        if (cachedCabin || cachedHold) {
+          callback({
+            cabin: cachedCabin ? JSON.parse(cachedCabin) : null,
+            hold: cachedHold ? JSON.parse(cachedHold) : null
+          }, true);
+        }
+      } catch (e) {}
+
+      onValue(dbRef, (snapshot) => {
+        if (snapshot.exists()) { 
+          callback(snapshot.val(), false); 
+        } else { 
+          callback(null, false); 
+        }
+      }, (error) => { console.warn("Realtime listener notice:", error); });
+    };
+
+    window.syncCloudFlightKeys = function() {
+      get(ref(db, 'flights')).then((snap) => {
+        if(snap.exists()) {
+          const keys = Object.keys(snap.val());
+          keys.forEach(k => {
+            const parts = k.split('_');
+            if(parts.length >= 3) {
+              window.recordFlightHistory(parts[0], parts[1], parts[2]);
+            }
+          });
+          window.filterFlightsForCurrentStation();
+        }
+      }).catch(() => {});
+    };
+  </script>
+
+  <script>
+    let targetSignElement = null;
+    let currentStation = '';
+    let currentFlight = '';
+    let currentFlightDate = ''; 
+    let currentMode = 'cabin'; 
+    let saveTimeout = null;
+    let isRemoteUpdating = false;
+    let isScanningBadge = false;
+    let cachedSignatureData = null;
+    let badgeScanState = null;
+    let pendingBarcodeRegistration = null;
+
+    let appData = {
+      cabin: { fields: {}, rows: [], signOff: {}, remarks: "" },
+      hold: { fields: {}, rows: [], signOff: {}, remarks: "" }
+    };
+
+    window.pruneOldStorage = function() {
+      try {
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key && key.startsWith('offline_') && !key.includes(currentFlight)) {
+            localStorage.removeItem(key);
+            break;
+          }
+        }
+      } catch (e) {}
+    };
+
+    window.recordFlightHistory = function(station, flight, date) {
+      try {
+        let registry = JSON.parse(localStorage.getItem('swissport_station_flights') || '[]');
+        const entry = { station: station.toUpperCase(), flight: flight.toUpperCase(), date: date };
+        const exists = registry.some(r => r.station === entry.station && r.flight === entry.flight && r.date === entry.date);
+        if (!exists) {
+          registry.unshift(entry);
+          if (registry.length > 50) registry.pop();
+          localStorage.setItem('swissport_station_flights', JSON.stringify(registry));
+        }
+      } catch (e) {}
+    };
+
+    function getSelectedStationCode() {
+      const stSelect = document.getElementById('setup-station');
+      if (!stSelect) return "";
+      if (stSelect.value === 'MANUAL') {
+        return document.getElementById('setup-station-manual').value.trim().toUpperCase();
+      }
+      return stSelect.value.trim().toUpperCase();
+    }
+
+    window.filterFlightsForCurrentStation = function() {
+      const station = getSelectedStationCode();
+      const recordsBox = document.getElementById('station-records-box');
+      const recordsSelect = document.getElementById('station-flights-select');
+      const stationLabel = document.getElementById('current-station-label');
+
+      if (!station) {
+        if (recordsBox) recordsBox.style.display = 'none';
+        return;
+      }
+
+      stationLabel.innerText = station;
+
+      let registry = [];
+      try {
+        registry = JSON.parse(localStorage.getItem('swissport_station_flights') || '[]');
+      } catch (e) {}
+
+      const stationFlights = registry.filter(r => r.station === station);
+
+      if (stationFlights.length > 0) {
+        recordsBox.style.display = 'block';
+        recordsSelect.innerHTML = `<option value="" disabled selected>▼ Select a past flight in ${station}...</option>`;
+        stationFlights.forEach(item => {
+          const opt = document.createElement('option');
+          opt.value = JSON.stringify(item);
+          opt.innerText = `✈️ ${item.flight}  —  📅 ${item.date}`;
+          recordsSelect.appendChild(opt);
+        });
+      } else {
+        recordsBox.style.display = 'none';
+      }
+    };
+
+    function loadStationFlightRecord(selectElement) {
+      if (!selectElement.value) return;
+      const item = JSON.parse(selectElement.value);
+
+      document.getElementById('setup-flight').value = item.flight;
+      
+      const dateParts = item.date.split('-');
+      if (dateParts.length === 3) {
+        document.getElementById('setup-date').value = `${dateParts[2]}-${dateParts[1]}-${dateParts[0]}`;
+        updateDateDisplay();
+      }
+      detectExistingRecord();
+    }
+
+    function detectExistingRecord() {
+      const station = getSelectedStationCode();
+      const flight = document.getElementById('setup-flight').value.trim().toUpperCase();
+      const dateInput = document.getElementById('setup-date').value;
+      const date = dateInput ? dateInput.split('-').reverse().join('-') : "";
+
+      const btnLabel = document.getElementById('btn-start-label');
+
+      if (!station || !flight || !date) {
+        btnLabel.innerText = "⚡ OPEN FLIGHT DISPATCH";
+        return;
+      }
+
+      const flightKey = `${station}_${flight}_${date}`;
+      const hasLocalRecord = localStorage.getItem(`offline_${flightKey}_cabin`) || localStorage.getItem(`offline_${flightKey}_hold`);
+
+      if (hasLocalRecord) {
+        btnLabel.innerText = `📂 RESUME SAVED RECORD (${flight})`;
+      } else {
+        btnLabel.innerText = `⚡ INITIALIZE NEW FLIGHT (${flight})`;
+      }
+    }
+
+    function handleStationChange(select) {
+      const manualInput = document.getElementById('setup-station-manual');
+      if (select.value === 'MANUAL') {
+        manualInput.style.display = 'block';
+        manualInput.focus();
+      } else {
+        manualInput.style.display = 'none';
+      }
+      window.filterFlightsForCurrentStation();
+      detectExistingRecord();
+    }
+
+    function getNow24H() {
+      const now = new Date();
+      return String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+    }
+
+    function updateDateDisplay() {
+      const dateVal = document.getElementById('setup-date').value;
+      if (dateVal) {
+        const parts = dateVal.split('-');
+        if (parts.length === 3) {
+          document.getElementById('setup-date-display').value = `${parts[2]} / ${parts[1]} / ${parts[0]}`;
+        }
+      }
+    }
+
+    // Auto-fits the fixed-width paper sheet to the visible viewport so mobile users see
+    // the whole form at a glance; native pinch-zoom (enabled in the viewport meta) still
+    // works for precise editing of a specific cell.
+    let fitSheetRAF = null;
+    function fitSheetToScreen() {
+      if (fitSheetRAF) cancelAnimationFrame(fitSheetRAF);
+      fitSheetRAF = requestAnimationFrame(() => {
+        const wrapper = document.getElementById('sheet-wrapper-id');
+        if (!wrapper) return;
+        const containers = document.querySelectorAll('.sheet-container.form-section');
+        if (!containers.length) return;
+
+        let visibleContainer = null;
+        containers.forEach(c => { if (c.style.display !== 'none') visibleContainer = c; });
+        if (!visibleContainer) return;
+
+        const availWidth = wrapper.clientWidth || window.innerWidth;
+
+        if (availWidth < 1000) {
+          const scale = Math.max(0.4, availWidth / 1000);
+          containers.forEach(c => { c.style.transform = `scale(${scale})`; });
+          wrapper.style.height = Math.ceil(visibleContainer.offsetHeight * scale) + 'px';
+          wrapper.style.overflowX = 'hidden';
+          wrapper.classList.remove('scrollable');
+        } else {
+          containers.forEach(c => { c.style.transform = ''; });
+          wrapper.style.height = '';
+          wrapper.style.overflowX = 'auto';
+          wrapper.classList.add('scrollable');
+        }
+      });
+    }
+    window.addEventListener('resize', fitSheetToScreen);
+    window.addEventListener('orientationchange', () => setTimeout(fitSheetToScreen, 300));
+
+    window.addEventListener('DOMContentLoaded', () => {
+      const dateInput = document.getElementById('setup-date');
+      const today = new Date();
+      const yyyy = today.getFullYear();
+      const mm = String(today.getMonth() + 1).padStart(2, '0');
+      const dd = String(today.getDate()).padStart(2, '0');
+      
+      dateInput.value = `${yyyy}-${mm}-${dd}`;
+      updateDateDisplay();
+      setInterval(updateActiveStaffChips, 1000);
+
+      // Start downloading the OCR engine now, in the background, while the officer is still
+      // filling in station/flight — so it's already warm by the time they reach Scan ID Badge
+      // or Scan Barcode (both now share this one worker).
+      badgeWarmUpOCR();
+
+      setTimeout(() => {
+        if (window.syncCloudFlightKeys) window.syncCloudFlightKeys();
+      }, 1500);
+    });
+
+    function handleEmpNameInput(nameElement) {
+      const tr = nameElement.closest('tr');
+      if (!tr) return;
+      const nameVal = nameElement.innerText.trim();
+      const timeInInput = tr.querySelector('.emp-time-in');
+      const timeOutInput = tr.querySelector('.emp-time-out');
+      
+      if (nameVal && nameVal !== 'Name' && timeInInput && !timeInInput.value.trim()) {
+        timeInInput.value = getNow24H();
+      }
+      if (timeOutInput && !timeOutInput.value.trim()) {
+        timeOutInput.value = "";
+      }
+      updateActiveStaffChips();
+      collectAndSaveData();
+    }
+
+    function handleDesigChange(selectElement) {
+      const val = selectElement.value;
+      const tr = selectElement.closest('tr');
+      const td = selectElement.closest('td');
+      
+      if (val === 'MANUAL') {
+         td.innerHTML = '<div class="field-input emp-desig" contenteditable="plaintext-only" placeholder="Type here..." oninput="collectAndSaveData()"></div>';
+         collectAndSaveData();
+         return;
+      }
+      
+      const purpose = tr.querySelector('.emp-purpose');
+      const dept = tr.querySelector('.emp-dept');
+      
+      if (val === 'TRC') { purpose.innerText = 'Occ'; dept.innerText = 'Occ'; }
+      else if (val === 'TL') { purpose.innerText = 'TL'; dept.innerText = 'LIB'; }
+      else if (val === 'CL') { purpose.innerText = 'CL'; dept.innerText = 'LIB'; }
+      else if (val === 'ENG') { purpose.innerText = 'ENG'; dept.innerText = 'NAGS'; }
+      else if (val === 'CAT') { purpose.innerText = 'CAT'; dept.innerText = 'CATRION'; }
+      else if (val === 'RTL') { purpose.innerText = 'LOD/OFLOD'; dept.innerText = 'RAM'; }
+      else if (val === 'OPT') { purpose.innerText = 'LOD/OFLOD'; dept.innerText = 'RAM'; }
+      else if (val === 'POT') { purpose.innerText = 'LOD/OFLOD'; dept.innerText = 'G.S'; }
+      
+      collectAndSaveData();
+    }
+
+    function formatTime(input, event) {
+      if (event && event.inputType === 'deleteContentBackward') {
+        collectAndSaveData();
+        return;
+      }
+      let val = input.value.replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d));
+      let v = val.replace(/[^0-9]/g, '');
+      if (v.length > 4) v = v.substring(0, 4);
+      
+      if (v.length >= 2) {
+        let hours = parseInt(v.substring(0, 2), 10);
+        if (hours > 23) { v = "23" + v.substring(2); }
+      }
+      if (v.length === 4) {
+        let mins = parseInt(v.substring(2, 4), 10);
+        if (mins > 59) { v = v.substring(0, 2) + "59"; }
+      }
+
+      let finalVal = v;
+      if (v.length >= 3) {
+        finalVal = v.substring(0, 2) + ':' + v.substring(2);
+      }
+      
+      if (input.value !== finalVal) {
+        input.value = finalVal;
+      }
+      collectAndSaveData();
+    }
+
+    function validateTimeOnBlur(input) {
+      let v = input.value.trim();
+      if (!v) return;
+      if (/^\d{1,2}$/.test(v)) {
+        let h = v.padStart(2, '0');
+        input.value = `${h}:00`;
+      } else if (/^\d{1,2}:\d{1}$/.test(v)) {
+        let parts = v.split(':');
+        input.value = `${parts[0].padStart(2, '0')}:${parts[1]}0`;
+      }
+      collectAndSaveData();
+    }
+
+    function updateActiveStaffChips() {
+      const chipsContainer = document.getElementById('quick-chips');
+      if (!chipsContainer) return; 
+
+      const rows = document.querySelectorAll(`#section-${currentMode} #log-body tr`);
+      let activeStaff = [];
+
+      rows.forEach(tr => {
+        const nameDiv = tr.querySelector('.emp-name');
+        const timeoutInput = tr.querySelector('.emp-time-out');
+        
+        if (nameDiv && timeoutInput) {
+          const name = nameDiv.innerText.trim();
+          const timeOut = timeoutInput.value.trim();
+          if (name && name !== "Name" && !timeOut) {
+            activeStaff.push(name);
+          }
+        }
+      });
+
+      chipsContainer.innerHTML = '';
+
+      if (activeStaff.length === 0) {
+        const emptySpan = document.createElement('span');
+        emptySpan.className = 'chip-waiting';
+        emptySpan.innerText = 'No active personnel inside. Scan badge or add manually below.';
+        chipsContainer.appendChild(emptySpan);
+      } else {
+        activeStaff.forEach(name => {
+          const chip = document.createElement('div');
+          chip.className = 'chip';
+          chip.innerText = `👋 Sign Out: ${name}`;
+          chip.addEventListener('click', () => logOutEmployee(name));
+          chipsContainer.appendChild(chip);
+        });
+      }
+    }
+
+    const cabinTemplateHTML = `
+      <table class="header-table">
+        <tr>
+          <td colspan="2" style="background:#f8fafc; font-weight: bold;">
+            FORM - Ref: SA-SEC- 0056<br>
+            <span style="font-size: 13.5px; text-transform: uppercase;">AIRCRAFT CABIN ACCESS CONTROL POINT CHECKSHEET (24H)</span>
+          </td>
+          <td class="logo-cell"><div class="sheet-brand">SWISS<span>PORT</span></div></td>
+        </tr>
+        <tr>
+          <td>VALID AS OF: <b>06 MAY 2026</b></td>
+          <td>AUTHOR: <b>KSA SECURITY MANAGER</b></td>
+          <td>VERSION: <b>2</b> | PAGE: <b>1 OF 1</b></td>
+        </tr>
+      </table>
+      <table class="data-table">
+        <tr>
+          <td style="font-weight:bold; width:10%;">Station:</td><td style="width:14%;"><div class="field-input auto-station field-locked"></div></td>
+          <td style="font-weight:bold; width:13%;">Bay / Stand No:</td><td style="width:12%;"><div class="field-input gen-field" contenteditable="plaintext-only" oninput="collectAndSaveData()"></div></td>
+          <td style="font-weight:bold; width:11%;">A/C Reg:</td><td style="width:14%;"><div class="field-input gen-field" contenteditable="plaintext-only" oninput="collectAndSaveData()"></div></td>
+          <td style="font-weight:bold; width:9%;">Date:</td><td style="width:17%;"><div class="field-input auto-date field-locked"></div></td>
+        </tr>
+        <tr>
+          <td style="font-weight:bold;">Arr Flight No:</td><td><div class="field-input auto-flight field-locked"></div></td>
+          <td style="font-weight:bold;">Chocks On:</td><td><input type="text" class="time-24 gen-input" placeholder="HH:MM" maxlength="5" inputmode="numeric" oninput="formatTime(this, event)" onblur="validateTimeOnBlur(this)"></td>
+          <td style="font-weight:bold;">Chocks Off:</td><td><input type="text" class="time-24 gen-input" placeholder="HH:MM" maxlength="5" inputmode="numeric" oninput="formatTime(this, event)" onblur="validateTimeOnBlur(this)"></td>
+          <td style="font-weight:bold;">Dep Flight No:</td><td><div class="field-input gen-field" contenteditable="plaintext-only" oninput="collectAndSaveData()"></div></td>
+        </tr>
+      </table>
+      <div class="sec-title">Cabin Access Door Management (24H Format)</div>
+      <table class="data-table">
+        <thead>
+          <tr><th style="width:11%;">Door</th><th>1st Door Open</th><th>1st PAX Off</th><th>Last PAX Off</th><th>Crew Disembark</th><th>Crew Boarding</th><th>1st PAX On</th><th>Last PAX On</th><th>1st Door Close</th></tr>
+        </thead>
+        <tbody>
+          <tr><td style="font-weight:bold; background:#f8fafc;">1st Cabin Door</td><td><input type="text" class="time-24 gen-input" placeholder="HH:MM" maxlength="5" inputmode="numeric" oninput="formatTime(this, event)" onblur="validateTimeOnBlur(this)"></td><td><input type="text" class="time-24 gen-input" placeholder="HH:MM" maxlength="5" inputmode="numeric" oninput="formatTime(this, event)" onblur="validateTimeOnBlur(this)"></td><td><input type="text" class="time-24 gen-input" placeholder="HH:MM" maxlength="5" inputmode="numeric" oninput="formatTime(this, event)" onblur="validateTimeOnBlur(this)"></td><td><input type="text" class="time-24 gen-input" placeholder="HH:MM" maxlength="5" inputmode="numeric" oninput="formatTime(this, event)" onblur="validateTimeOnBlur(this)"></td><td><input type="text" class="time-24 gen-input" placeholder="HH:MM" maxlength="5" inputmode="numeric" oninput="formatTime(this, event)" onblur="validateTimeOnBlur(this)"></td><td><input type="text" class="time-24 gen-input" placeholder="HH:MM" maxlength="5" inputmode="numeric" oninput="formatTime(this, event)" onblur="validateTimeOnBlur(this)"></td><td><input type="text" class="time-24 gen-input" placeholder="HH:MM" maxlength="5" inputmode="numeric" oninput="formatTime(this, event)" onblur="validateTimeOnBlur(this)"></td><td><input type="text" class="time-24 gen-input" placeholder="HH:MM" maxlength="5" inputmode="numeric" oninput="formatTime(this, event)" onblur="validateTimeOnBlur(this)"></td></tr>
+          <tr><td style="font-weight:bold; background:#f8fafc;">2nd Cabin Door</td><td><input type="text" class="time-24 gen-input" placeholder="HH:MM" maxlength="5" inputmode="numeric" oninput="formatTime(this, event)" onblur="validateTimeOnBlur(this)"></td><td><input type="text" class="time-24 gen-input" placeholder="HH:MM" maxlength="5" inputmode="numeric" oninput="formatTime(this, event)" onblur="validateTimeOnBlur(this)"></td><td><input type="text" class="time-24 gen-input" placeholder="HH:MM" maxlength="5" inputmode="numeric" oninput="formatTime(this, event)" onblur="validateTimeOnBlur(this)"></td><td style="background:#f1f5f9;">-</td><td style="background:#f1f5f9;">-</td><td><input type="text" class="time-24 gen-input" placeholder="HH:MM" maxlength="5" inputmode="numeric" oninput="formatTime(this, event)" onblur="validateTimeOnBlur(this)"></td><td><input type="text" class="time-24 gen-input" placeholder="HH:MM" maxlength="5" inputmode="numeric" oninput="formatTime(this, event)" onblur="validateTimeOnBlur(this)"></td><td><input type="text" class="time-24 gen-input" placeholder="HH:MM" maxlength="5" inputmode="numeric" oninput="formatTime(this, event)" onblur="validateTimeOnBlur(this)"></td></tr>
+        </tbody>
+      </table>
+      <div class="sec-title">Personnel Access Log (24H Format)</div>
+      <table class="data-table log-table" id="personnel-table">
+        <thead>
+          <tr><th style="width: 35px;">S/No</th><th style="width: 20%;">Names</th><th style="width: 14%;">Designation</th><th style="width: 13%;">Purpose</th><th style="width: 14%;">Department</th><th style="width: 75px;">Time In</th><th style="width: 75px;">Time Out</th><th style="width: 14%;">Signature</th><th class="no-print" style="width: 35px;">Del</th></tr>
+        </thead>
+        <tbody id="log-body"></tbody>
+      </table>
+      <div class="no-print" style="display:flex; align-items:center; gap:8px; margin-top:6px;">
+        <button class="btn-row-action add-row-btn" onclick="addRow('cabin')">+ Add Personnel Row</button>
+        <label class="btn-row-action scan-btn" id="scan-label-cabin" for="scanFileInput-cabin" style="cursor:pointer;">📷 Scan ID Badge</label>
+        <input type="file" id="scanFileInput-cabin" accept="image/*" capture="environment" style="display:none;" onchange="processSmartBadge(this, 'cabin')">
+        <label class="btn-row-action barcode-btn" id="barcode-label-cabin" for="scanBarcodeInput-cabin" style="cursor:pointer;">▮▮▮ Scan Barcode</label>
+        <input type="file" id="scanBarcodeInput-cabin" accept="image/*" capture="environment" style="display:none;" onchange="processBarcodePhoto(this, 'cabin')">
+      </div>
+      <div class="sec-title" style="margin-top:8px;">Sign-Off Section</div>
+      <table class="data-table sign-off-table">
+        <thead><tr><th style="text-align:left; width:22%;">Role</th><th style="width:28%;">Names</th><th style="width:18%;">Employee ID</th><th style="width:18%;">Signature</th><th style="width:14%;">Access Check (✓)</th></tr></thead>
+        <tbody>
+          <tr><td style="font-weight:bold; text-align:left;">Security Agent</td><td><div class="field-input sign-name" contenteditable="plaintext-only" placeholder="Agent Name" oninput="collectAndSaveData()"></div></td><td><div class="field-input sign-id" contenteditable="plaintext-only" placeholder="ID No." oninput="collectAndSaveData()"></div></td><td><div class="sign-box" onclick="openSignModal(this)"><span>✍️ Sign</span></div></td><td><input type="checkbox" class="sign-check" style="transform: scale(1.3);" onchange="collectAndSaveData()"></td></tr>
+          <tr><td style="font-weight:bold; text-align:left;">Airline Representative</td><td><div class="field-input sign-name" contenteditable="plaintext-only" placeholder="Rep Name" oninput="collectAndSaveData()"></div></td><td><div class="field-input sign-id" contenteditable="plaintext-only" placeholder="ID No." oninput="collectAndSaveData()">N/A</div></td><td><div class="sign-box" onclick="openSignModal(this)"><span>✍️ Sign</span></div></td><td><input type="checkbox" class="sign-check" style="transform: scale(1.3);" onchange="collectAndSaveData()"></td></tr>
+        </tbody>
+      </table>
+      <div class="sec-title">Remarks</div>
+      <div style="border: 1px solid #334155; border-top: none; padding: 4px;"><textarea class="auto-remarks" id="remarks-cabin" placeholder="Enter flight security remarks..." oninput="collectAndSaveData()"></textarea></div>
+    `;
+
+    const holdTemplateHTML = `
+      <table class="header-table">
+        <tr>
+          <td colspan="2" style="background:#f8fafc; font-weight: bold;">
+            FORM - Ref: SA-SEC- 0057<br>
+            <span style="font-size: 13.5px; text-transform: uppercase;">AIRCRAFT HOLD CONTROL POINT CHECKSHEET (24H)</span>
+          </td>
+          <td class="logo-cell"><div class="sheet-brand">SWISS<span>PORT</span></div></td>
+        </tr>
+        <tr>
+          <td>VALID AS OF: <b>16 DEC 2025</b></td>
+          <td>AUTHOR: <b>KSA SECURITY MANAGER</b></td>
+          <td>VERSION: <b>2</b> | PAGE: <b>1 OF 1</b></td>
+        </tr>
+      </table>
+      <table class="data-table">
+        <tr>
+          <td style="font-weight:bold; width:10%;">Station:</td><td style="width:14%;"><div class="field-input auto-station field-locked"></div></td>
+          <td style="font-weight:bold; width:13%;">Bay / Stand No:</td><td style="width:12%;"><div class="field-input gen-field" contenteditable="plaintext-only" oninput="collectAndSaveData()"></div></td>
+          <td style="font-weight:bold; width:11%;">A/C Reg:</td><td style="width:14%;"><div class="field-input gen-field" contenteditable="plaintext-only" oninput="collectAndSaveData()"></div></td>
+          <td style="font-weight:bold; width:9%;">Date:</td><td style="width:17%;"><div class="field-input auto-date field-locked"></div></td>
+        </tr>
+        <tr>
+          <td style="font-weight:bold;">Arr Flight No:</td><td><div class="field-input auto-flight field-locked"></div></td>
+          <td style="font-weight:bold;">Chocks On:</td><td><input type="text" class="time-24 gen-input" placeholder="HH:MM" maxlength="5" inputmode="numeric" oninput="formatTime(this, event)" onblur="validateTimeOnBlur(this)"></td>
+          <td style="font-weight:bold;">Chocks Off:</td><td><input type="text" class="time-24 gen-input" placeholder="HH:MM" maxlength="5" inputmode="numeric" oninput="formatTime(this, event)" onblur="validateTimeOnBlur(this)"></td>
+          <td style="font-weight:bold;">Dep Flight No:</td><td><div class="field-input gen-field" contenteditable="plaintext-only" oninput="collectAndSaveData()"></div></td>
+        </tr>
+      </table>
+      <div class="sec-title">Hold Opening/Closing & Baggage Timing Record (24H Format)</div>
+      <table class="data-table">
+        <thead>
+          <tr><th style="width:14%;">Hold Position</th><th>Hold Open</th><th>First Bag Offloaded</th><th>Last Bag Offloaded</th><th>First Bag Loaded</th><th>Last Bag Loaded</th><th>Hold Close</th></tr>
+        </thead>
+        <tbody>
+          <tr><td style="font-weight:bold; background:#f8fafc;">FWD Hold</td><td><input type="text" class="time-24 gen-input" placeholder="HH:MM" maxlength="5" inputmode="numeric" oninput="formatTime(this, event)" onblur="validateTimeOnBlur(this)"></td><td><input type="text" class="time-24 gen-input" placeholder="HH:MM" maxlength="5" inputmode="numeric" oninput="formatTime(this, event)" onblur="validateTimeOnBlur(this)"></td><td><input type="text" class="time-24 gen-input" placeholder="HH:MM" maxlength="5" inputmode="numeric" oninput="formatTime(this, event)" onblur="validateTimeOnBlur(this)"></td><td><input type="text" class="time-24 gen-input" placeholder="HH:MM" maxlength="5" inputmode="numeric" oninput="formatTime(this, event)" onblur="validateTimeOnBlur(this)"></td><td><input type="text" class="time-24 gen-input" placeholder="HH:MM" maxlength="5" inputmode="numeric" oninput="formatTime(this, event)" onblur="validateTimeOnBlur(this)"></td><td><input type="text" class="time-24 gen-input" placeholder="HH:MM" maxlength="5" inputmode="numeric" oninput="formatTime(this, event)" onblur="validateTimeOnBlur(this)"></td></tr>
+          <tr><td style="font-weight:bold; background:#f8fafc;">AFT / Rear Hold</td><td><input type="text" class="time-24 gen-input" placeholder="HH:MM" maxlength="5" inputmode="numeric" oninput="formatTime(this, event)" onblur="validateTimeOnBlur(this)"></td><td><input type="text" class="time-24 gen-input" placeholder="HH:MM" maxlength="5" inputmode="numeric" oninput="formatTime(this, event)" onblur="validateTimeOnBlur(this)"></td><td><input type="text" class="time-24 gen-input" placeholder="HH:MM" maxlength="5" inputmode="numeric" oninput="formatTime(this, event)" onblur="validateTimeOnBlur(this)"></td><td><input type="text" class="time-24 gen-input" placeholder="HH:MM" maxlength="5" inputmode="numeric" oninput="formatTime(this, event)" onblur="validateTimeOnBlur(this)"></td><td><input type="text" class="time-24 gen-input" placeholder="HH:MM" maxlength="5" inputmode="numeric" oninput="formatTime(this, event)" onblur="validateTimeOnBlur(this)"></td><td><input type="text" class="time-24 gen-input" placeholder="HH:MM" maxlength="5" inputmode="numeric" oninput="formatTime(this, event)" onblur="validateTimeOnBlur(this)"></td></tr>
+        </tbody>
+      </table>
+      <div class="sec-title">Employee Information – Aircraft Hold Loading/Offloading (24H Format)</div>
+      <table class="data-table log-table" id="personnel-table">
+        <thead>
+          <tr><th style="width: 35px;">S/No</th><th style="width: 20%;">Names</th><th style="width: 14%;">Designation</th><th style="width: 13%;">Purpose</th><th style="width: 14%;">Department</th><th style="width: 75px;">Time In</th><th style="width: 75px;">Time Out</th><th style="width: 14%;">Signature</th><th class="no-print" style="width: 35px;">Del</th></tr>
+        </thead>
+        <tbody id="log-body"></tbody>
+      </table>
+      <div class="no-print" style="display:flex; align-items:center; gap:8px; margin-top:6px;">
+        <button class="btn-row-action add-row-btn" onclick="addRow('hold')">+ Add Personnel Row</button>
+        <label class="btn-row-action scan-btn" id="scan-label-hold" for="scanFileInput-hold" style="cursor:pointer;">📷 Scan ID Badge</label>
+        <input type="file" id="scanFileInput-hold" accept="image/*" capture="environment" style="display:none;" onchange="processSmartBadge(this, 'hold')">
+        <label class="btn-row-action barcode-btn" id="barcode-label-hold" for="scanBarcodeInput-hold" style="cursor:pointer;">▮▮▮ Scan Barcode</label>
+        <input type="file" id="scanBarcodeInput-hold" accept="image/*" capture="environment" style="display:none;" onchange="processBarcodePhoto(this, 'hold')">
+      </div>
+      <div class="sec-title" style="margin-top:8px;">Sign-Off Section</div>
+      <table class="data-table sign-off-table">
+        <thead><tr><th style="text-align:left; width:22%;">Role</th><th style="width:28%;">Names</th><th style="width:18%;">Employee ID</th><th style="width:18%;">Signature</th><th style="width:14%;">Access Check (✓)</th></tr></thead>
+        <tbody>
+          <tr><td style="font-weight:bold; text-align:left;">Security Agent</td><td><div class="field-input sign-name" contenteditable="plaintext-only" placeholder="Agent Name" oninput="collectAndSaveData()"></div></td><td><div class="field-input sign-id" contenteditable="plaintext-only" placeholder="ID No." oninput="collectAndSaveData()"></div></td><td><div class="sign-box" onclick="openSignModal(this)"><span>✍️ Sign</span></div></td><td><input type="checkbox" class="sign-check" style="transform: scale(1.3);" onchange="collectAndSaveData()"></td></tr>
+          <tr><td style="font-weight:bold; text-align:left;">Airline Representative</td><td><div class="field-input sign-name" contenteditable="plaintext-only" placeholder="Rep Name" oninput="collectAndSaveData()"></div></td><td><div class="field-input sign-id" contenteditable="plaintext-only" placeholder="ID No." oninput="collectAndSaveData()">N/A</div></td><td><div class="sign-box" onclick="openSignModal(this)"><span>✍️ Sign</span></div></td><td><input type="checkbox" class="sign-check" style="transform: scale(1.3);" onchange="collectAndSaveData()"></td></tr>
+        </tbody>
+      </table>
+      <div class="sec-title">Remarks</div>
+      <div style="border: 1px solid #334155; border-top: none; padding: 4px;"><textarea class="auto-remarks" id="remarks-hold" placeholder="Enter hold operations remarks..." oninput="collectAndSaveData()"></textarea></div>
+    `;
+
+    function startApp() {
+      const stationVal = getSelectedStationCode();
+      const flightInput = document.getElementById('setup-flight').value.trim().toUpperCase();
+      
+      if (!stationVal) { alert('Please select or enter an airport station.'); return; }
+      if (!flightInput) { alert('Please enter flight number.'); return; }
+      
+      currentStation = stationVal;
+      currentFlight = flightInput;
+      
+      const dateSetup = document.getElementById('setup-date').value;
+      currentFlightDate = dateSetup ? dateSetup.split('-').reverse().join('-') : formatDateNow();
+      
+      window.recordFlightHistory(currentStation, currentFlight, currentFlightDate);
+
+      document.getElementById('setup-screen').style.display = 'none';
+      document.getElementById('main-app').style.display = 'block';
+
+      document.getElementById('section-cabin').innerHTML = cabinTemplateHTML;
+      document.getElementById('section-hold').innerHTML = holdTemplateHTML;
+      fitSheetToScreen();
+
+      document.querySelectorAll('.auto-date').forEach(el => el.innerText = currentFlightDate);
+      document.querySelectorAll('.auto-flight').forEach(el => el.innerText = currentFlight);
+      document.querySelectorAll('.auto-station').forEach(el => el.innerText = currentStation);
+
+      const statusBanner = document.getElementById('db-status-banner');
+      const statusIcon = document.getElementById('db-status-icon');
+      const statusText = document.getElementById('db-status-text');
+
+      statusBanner.className = 'no-print db-status-existing';
+      statusIcon.innerText = '🔍';
+      statusText.innerText = `Connecting to Database for Flight ${currentFlight} (${currentFlightDate}) at [${currentStation}]...`;
+
+      setTimeout(() => {
+          if(window.firebaseListenToFlight) {
+              window.firebaseListenToFlight(currentStation, currentFlight, currentFlightDate, (data, isFromCache) => {
+                  if(data && (data.cabin || data.hold)) {
+                      isRemoteUpdating = true;
+                      if(data.cabin) { appData.cabin = data.cabin; renderSectionData('cabin'); }
+                      if(data.hold) { appData.hold = data.hold; renderSectionData('hold'); }
+                      updateActiveStaffChips();
+                      isRemoteUpdating = false;
+
+                      statusBanner.className = 'no-print db-status-existing';
+                      statusIcon.innerText = '📂';
+                      statusText.innerText = `Retrieved existing record for ${currentFlight} at ${currentStation} from Database. Fully editable.`;
+                  } else {
+                      if (!data) {
+                        statusBanner.className = 'no-print db-status-new';
+                        statusIcon.innerText = '✨';
+                        statusText.innerText = `New Flight Clearance started for ${currentFlight} (${currentStation}). Auto-saving enabled.`;
+
+                        if (document.querySelector('#section-cabin #log-body').children.length === 0) addRow('cabin', true);
+                        if (document.querySelector('#section-hold #log-body').children.length === 0) addRow('hold', true);
+
+                        appData = {
+                          cabin: { fields: {}, rows: [], signOff: {}, remarks: "" },
+                          hold: { fields: {}, rows: [], signOff: {}, remarks: "" }
+                        };
+                        collectAndSaveData(true);
+                      }
+                  }
+              });
+              switchForm('cabin');
+          } else {
+              addRow('cabin', true);
+              addRow('hold', true);
+              switchForm('cabin');
+          }
+      }, 300);
+    }
+
+    function collectAndSaveData(immediate = false) {
+      if (isRemoteUpdating) return;
+
+      const sectionEl = document.getElementById(`section-${currentMode}`);
+      if (!sectionEl) return;
+
+      const genFields = Array.from(sectionEl.querySelectorAll('.gen-field')).map(el => el.innerText);
+      const genInputs = Array.from(sectionEl.querySelectorAll('.gen-input')).map(el => el.value);
+      appData[currentMode].fields = { genFields, genInputs };
+
+      const rows = [];
+      sectionEl.querySelectorAll('#log-body tr').forEach(tr => {
+        const name = tr.querySelector('.emp-name') ? tr.querySelector('.emp-name').innerText : "";
+        const desigEl = tr.querySelector('.emp-desig');
+        let desigVal = "";
+        let isSelect = false;
+        if (desigEl) {
+           if (desigEl.tagName.toLowerCase() === 'select') { desigVal = desigEl.value; isSelect = true; } 
+           else { desigVal = desigEl.innerText; }
+        }
+        const purpose = tr.querySelector('.emp-purpose') ? tr.querySelector('.emp-purpose').innerText : "";
+        const dept = tr.querySelector('.emp-dept') ? tr.querySelector('.emp-dept').innerText : "";
+        const timeIn = tr.querySelector('.emp-time-in') ? tr.querySelector('.emp-time-in').value : "";
+        const timeOut = tr.querySelector('.emp-time-out') ? tr.querySelector('.emp-time-out').value : "";
+        const signImg = tr.querySelector('.sign-box img') ? tr.querySelector('.sign-box img').src : "";
+
+        rows.push({ name, desigVal, isSelect, purpose, dept, timeIn, timeOut, signImg });
+      });
+      appData[currentMode].rows = rows;
+
+      const signNames = Array.from(sectionEl.querySelectorAll('.sign-off-table .sign-name')).map(el => el.innerText);
+      const signIds = Array.from(sectionEl.querySelectorAll('.sign-off-table .sign-id')).map(el => el.innerText);
+      const signChecks = Array.from(sectionEl.querySelectorAll('.sign-off-table .sign-check')).map(el => el.checked);
+      const signImgs = Array.from(sectionEl.querySelectorAll('.sign-off-table .sign-box')).map(box => box.querySelector('img') ? box.querySelector('img').src : "");
+      appData[currentMode].signOff = { signNames, signIds, signChecks, signImgs };
+
+      const remarksEl = sectionEl.querySelector('.auto-remarks');
+      appData[currentMode].remarks = remarksEl ? remarksEl.value : "";
+
+      if(window.firebaseSaveSection && currentFlight && currentFlightDate && currentStation) {
+          if(saveTimeout) clearTimeout(saveTimeout);
+          if(immediate) {
+              window.firebaseSaveSection(currentStation, currentFlight, currentFlightDate, currentMode, appData[currentMode], () => {});
+          } else {
+              saveTimeout = setTimeout(() => {
+                  window.firebaseSaveSection(currentStation, currentFlight, currentFlightDate, currentMode, appData[currentMode], () => {});
+              }, 400);
+          }
+      }
+    }
+
+    function renderSectionData(mode) {
+      const sectionEl = document.getElementById(`section-${mode}`);
+      if (!sectionEl || !appData[mode]) return;
+      const data = appData[mode];
+
+      if (data.fields) {
+          const genFields = sectionEl.querySelectorAll('.gen-field');
+          if (data.fields.genFields) {
+              data.fields.genFields.forEach((val, i) => { 
+                  if(genFields[i] && document.activeElement !== genFields[i] && genFields[i].innerText !== val) 
+                      genFields[i].innerText = val; 
+              });
+          }
+          const genInputs = sectionEl.querySelectorAll('.gen-input');
+          if (data.fields.genInputs) {
+              data.fields.genInputs.forEach((val, i) => { 
+                  if(genInputs[i] && document.activeElement !== genInputs[i] && genInputs[i].value !== val) 
+                      genInputs[i].value = val; 
+              });
+          }
+      }
+
+      const tbody = sectionEl.querySelector('#log-body');
+      if (tbody && data.rows) {
+          const isUserTypingInLog = tbody.contains(document.activeElement);
+          if (!isUserTypingInLog) {
+            while (tbody.children.length < data.rows.length) { addRow(mode, true); }
+            while (tbody.children.length > data.rows.length && tbody.children.length > 0) { tbody.lastElementChild.remove(); }
+          }
+          
+          data.rows.forEach((rData, index) => {
+              const tr = tbody.children[index];
+              if (tr) {
+                  const nameDiv = tr.querySelector('.emp-name');
+                  if (nameDiv && document.activeElement !== nameDiv && nameDiv.innerText !== (rData.name || "")) nameDiv.innerText = rData.name || "";
+                  
+                  const desigEl = tr.querySelector('.emp-desig');
+                  if (desigEl && document.activeElement !== desigEl && rData.desigVal) {
+                      if(desigEl.tagName.toLowerCase() === 'select' && desigEl.value !== rData.desigVal) desigEl.value = rData.desigVal;
+                      else if(desigEl.tagName.toLowerCase() !== 'select' && desigEl.innerText !== rData.desigVal) desigEl.innerText = rData.desigVal;
+                  }
+
+                  const purposeDiv = tr.querySelector('.emp-purpose');
+                  if (purposeDiv && document.activeElement !== purposeDiv && purposeDiv.innerText !== (rData.purpose || "")) purposeDiv.innerText = rData.purpose || "";
+                  
+                  const deptDiv = tr.querySelector('.emp-dept');
+                  if (deptDiv && document.activeElement !== deptDiv && deptDiv.innerText !== (rData.dept || "")) deptDiv.innerText = rData.dept || "";
+                  
+                  const inInput = tr.querySelector('.emp-time-in');
+                  if (inInput && document.activeElement !== inInput && inInput.value !== (rData.timeIn || "")) inInput.value = rData.timeIn || "";
+                  
+                  const outInput = tr.querySelector('.emp-time-out');
+                  if (outInput && document.activeElement !== outInput && outInput.value !== (rData.timeOut || "")) outInput.value = rData.timeOut || "";
+                  
+                  const sBox = tr.querySelector('.sign-box');
+                  if (sBox && rData.signImg) {
+                      const img = sBox.querySelector('img');
+                      if (!img || img.src !== rData.signImg) {
+                        sBox.innerHTML = '';
+                        const newImg = document.createElement('img');
+                        newImg.src = rData.signImg;
+                        newImg.alt = "Signature";
+                        sBox.appendChild(newImg);
+                      }
+                  } else if (sBox && !rData.signImg && sBox.querySelector('img')) {
+                      sBox.innerHTML = `<span>✍️ Sign</span>`;
+                  }
+              }
+          });
+      }
+
+      if (data.signOff) {
+          const signRows = sectionEl.querySelectorAll('.sign-off-table tbody tr');
+          signRows.forEach((row, i) => {
+              const sName = row.querySelector('.sign-name');
+              if (sName && document.activeElement !== sName && sName.innerText !== (data.signOff.signNames[i] || "")) sName.innerText = data.signOff.signNames[i] || '';
+              
+              const sId = row.querySelector('.sign-id');
+              if (sId && document.activeElement !== sId && sId.innerText !== (data.signOff.signIds[i] || "")) sId.innerText = data.signOff.signIds[i] || '';
+                  
+              if (data.signOff.signChecks) row.querySelector('.sign-check').checked = !!data.signOff.signChecks[i];
+                  
+              const sBox = row.querySelector('.sign-box');
+              if (sBox && data.signOff.signImgs && data.signOff.signImgs[i]) {
+                  const img = sBox.querySelector('img');
+                  if (!img || img.src !== data.signOff.signImgs[i]) {
+                    sBox.innerHTML = '';
+                    const newImg = document.createElement('img');
+                    newImg.src = data.signOff.signImgs[i];
+                    newImg.alt = "Signature";
+                    sBox.appendChild(newImg);
+                  }
+              }
+          });
+      }
+
+      const remarksEl = sectionEl.querySelector('.auto-remarks');
+      if (remarksEl && document.activeElement !== remarksEl && remarksEl.value !== (data.remarks || "")) remarksEl.value = data.remarks || "";
+
+      fitSheetToScreen();
+    }
+
+    function switchForm(type) {
+      collectAndSaveData();
+      currentMode = type;
+      document.getElementById('tab-cabin').classList.toggle('active', type === 'cabin');
+      document.getElementById('tab-hold').classList.toggle('active', type === 'hold');
+      document.getElementById('section-cabin').style.display = (type === 'cabin') ? 'block' : 'none';
+      document.getElementById('section-hold').style.display = (type === 'hold') ? 'block' : 'none';
+      renderSectionData(type);
+      updateActiveStaffChips();
+      fitSheetToScreen();
+    }
+
+    function addRow(sectionType, skipSave = false) {
+      const tbody = document.querySelector(`#section-${sectionType} #log-body`);
+      if(!tbody) return;
+      const count = tbody.children.length + 1;
+      const tr = document.createElement('tr');
+      let desigHtml = (sectionType === 'cabin') ? 
+        `<select class="emp-desig-select emp-desig" onchange="handleDesigChange(this)"><option value="" disabled selected>Role</option><option value="TRC">TRC</option><option value="TL">TL</option><option value="CL">CL</option><option value="ENG">ENG</option><option value="CAT">CAT</option><option value="MANUAL">✍️ Manual...</option></select>` : 
+        `<select class="emp-desig-select emp-desig" onchange="handleDesigChange(this)"><option value="" disabled selected>Role</option><option value="RTL">RTL</option><option value="OPT">OPT</option><option value="POT">POT</option><option value="MANUAL">✍️ Manual...</option></select>`;
+
+      tr.innerHTML = `
+        <td>${count}</td>
+        <td><div class="field-input emp-name" contenteditable="plaintext-only" placeholder="Name" oninput="handleEmpNameInput(this)"></div></td>
+        <td>${desigHtml}</td>
+        <td><div class="field-input emp-purpose" contenteditable="plaintext-only" placeholder="Purpose" oninput="collectAndSaveData()"></div></td>
+        <td><div class="field-input emp-dept" contenteditable="plaintext-only" placeholder="Department" oninput="collectAndSaveData()"></div></td>
+        <td><input type="text" class="time-24 emp-time-in" placeholder="HH:MM" maxlength="5" inputmode="numeric" oninput="formatTime(this, event); updateActiveStaffChips();" onblur="validateTimeOnBlur(this)"></td>
+        <td><input type="text" class="time-24 emp-time-out" placeholder="HH:MM" maxlength="5" inputmode="numeric" oninput="formatTime(this, event); updateActiveStaffChips();" onblur="validateTimeOnBlur(this)"></td>
+        <td><div class="sign-box" onclick="openSignModal(this)"><span>✍️ Sign</span></div></td>
+        <td class="no-print"><button class="action-btn" onclick="removeRow(this, '${sectionType}')">✕</button></td>
+      `;
+      tbody.appendChild(tr);
+      fitSheetToScreen();
+      if(!skipSave) collectAndSaveData();
+    }
+
+    function removeRow(btn, sectionType) {
+      const tbody = document.querySelector(`#section-${sectionType} #log-body`);
+      if (tbody && tbody.children.length > 1) {
+        btn.closest('tr').remove();
+        Array.from(tbody.children).forEach((tr, i) => tr.children[0].innerText = i + 1);
+        updateActiveStaffChips();
+        collectAndSaveData(true);
+        fitSheetToScreen();
+      }
+    }
+
+    function logOutEmployee(name) {
+      const curTime = getNow24H();
+      let found = false;
+      document.querySelectorAll(`#section-${currentMode} #log-body tr`).forEach(tr => {
+        const nCell = tr.querySelector('.emp-name');
+        const outCell = tr.querySelector('.emp-time-out');
+        
+        if (nCell && nCell.innerText.trim().toLowerCase() === name.toLowerCase() && !outCell.value.trim()) {
+          outCell.value = curTime;
+          found = true;
+        }
+      });
+      if (found) { 
+        const fb = document.getElementById('ocrFeedback');
+        if(fb) fb.innerText = `👋 Staff signed out: [${name}] at [${curTime}]`; 
+        updateActiveStaffChips();
+        collectAndSaveData();
+      } 
+    }
+
+    // ============================================================================
+    // Badge Scanner — rewritten from scratch around a "surface candidates, tap to
+    // pick" flow instead of a single strict guess. A badge photo rarely OCRs into
+    // one clean answer, so instead of betting everything on one rule-set and
+    // dead-ending into "type it yourself" when that rule misses, every plausible
+    // name the OCR pass turns up is ranked and offered as a one-tap chip. The
+    // top-ranked guess is always pre-filled too, so a good photo still resolves
+    // in a single tap on "Confirm & Log" — nothing typed at all.
+    // ============================================================================
+
+    function badgeCloneCanvas(canvas) {
+      const clone = document.createElement('canvas');
+      clone.width = canvas.width;
+      clone.height = canvas.height;
+      clone.getContext('2d').drawImage(canvas, 0, 0);
+      return clone;
+    }
+
+    function badgeOrientCanvas(img) {
+      // NOTE: this used to force-rotate any portrait-shaped photo 90°, assuming a tall
+      // photo must mean a landscape card was captured sideways. Verified against a real
+      // GACA/Swissport badge (which is itself a PORTRAIT card, photographed upright,
+      // text already reading normally) — that assumption was flipping correctly-oriented
+      // text on its side before OCR ever saw it. The browser already decodes the photo in
+      // the orientation the user actually held their phone in, so no rotation is applied.
+      const w = img.width, h = img.height;
+      // Target ~1600px on the long side regardless of source size: modern phone cameras
+      // shoot 3000-4000px photos, and feeding that full resolution into per-pixel
+      // thresholding + OCR is what was making scans time out on mobile.
+      const scale = Math.min(2.2, 1600 / Math.max(w, h));
+
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(w * scale);
+      canvas.height = Math.round(h * scale);
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      return canvas;
+    }
+
+    // Local adaptive thresholding (Bernsen-style): for every pixel, compare it against the
+    // average brightness of its own neighborhood (via an integral image, so this stays O(1)
+    // per pixel) and keep only what's meaningfully darker than its surroundings as ink.
+    // Verified against a real GACA badge with a repeating semi-transparent "GACA" security
+    // watermark tiled across the whole card, overlapping the name directly — a single global
+    // or per-tile contrast stretch (the previous approach) actually amplified that watermark
+    // instead of suppressing it. This local-mean method flattens the faint, spread-out
+    // watermark to white while keeping the solid black printed name crisp, and it evens out
+    // sunlight glare / low-light shadow the same way one global fix can't.
+    function badgeEvenOutLighting(canvas) {
+      const ctx = canvas.getContext('2d');
+      const w = canvas.width, h = canvas.height;
+      const frame = ctx.getImageData(0, 0, w, h);
+      const px = frame.data;
+
+      const gray = new Float64Array(w * h);
+      for (let i = 0, p = 0; p < px.length; p += 4, i++) {
+        gray[i] = px[p] * 0.299 + px[p + 1] * 0.587 + px[p + 2] * 0.114;
+      }
+
+      // Summed-area table (padded by one row/col of zeros) for O(1) box-sum lookups.
+      const stride = w + 1;
+      const integral = new Float64Array(stride * (h + 1));
+      for (let y = 0; y < h; y++) {
+        let rowSum = 0;
+        const rowBase = (y + 1) * stride;
+        const prevRowBase = y * stride;
+        for (let x = 0; x < w; x++) {
+          rowSum += gray[y * w + x];
+          integral[rowBase + x + 1] = integral[prevRowBase + x + 1] + rowSum;
+        }
+      }
+
+      const radius = 15; // ~31px window: big enough to average out the tiled watermark, small enough to track letter strokes
+      const bias = 12;   // how much darker than the local average a pixel must be to count as ink
+
+      const out = new Uint8ClampedArray(px.length);
+      for (let y = 0; y < h; y++) {
+        const y0 = Math.max(0, y - radius), y1 = Math.min(h, y + radius + 1);
+        for (let x = 0; x < w; x++) {
+          const x0 = Math.max(0, x - radius), x1 = Math.min(w, x + radius + 1);
+          const boxSum = integral[y1 * stride + x1] - integral[y0 * stride + x1] - integral[y1 * stride + x0] + integral[y0 * stride + x0];
+          const localMean = boxSum / ((x1 - x0) * (y1 - y0));
+          const v = gray[y * w + x] < (localMean - bias) ? 0 : 255;
+          const p = (y * w + x) * 4;
+          out[p] = out[p + 1] = out[p + 2] = v;
+          out[p + 3] = 255;
+        }
+      }
+      ctx.putImageData(new ImageData(out, w, h), 0, 0);
+    }
+
+    const BADGE_NOISE_WORDS = new Set([
+      'GACA', 'JED', 'JEDCO', 'JEDDAH', 'AIRPORT', 'AIRPORTS', 'DATE', 'EXPIRY', 'EXPIRES',
+      'AUTHORITY', 'CIVIL', 'VALID', 'KING', 'ABDULAZIZ', 'INTERNATIONAL', 'SECURITY', 'COMPANY',
+      'LOGISTICS', 'GUARD', 'SGS', 'SAL', 'SWISSPORT', 'AVIATION', 'REPRESENTATIVE', 'NAME',
+      'FULL', 'EMP', 'PASS', 'SIGNATURE', 'BLOOD', 'EMPLOYEE', 'ID', 'SAUDI', 'ARABIA', 'MINISTRY',
+      'INTERIOR', 'TYPE', 'STATION', 'KSA', 'GENERAL', 'PERMIT', 'ACCESS', 'ZONE', 'ZONES', 'ALL',
+      'RAMP', 'CABIN', 'HOLD', 'SUPERVISOR', 'OFFICER', 'DRIVER', 'ESCORT', 'VISITOR', 'TEMPORARY',
+      'PERMANENT', 'TERMINAL', 'OPERATIONS', 'AGENT', 'CREW', 'GROUND', 'SERVICES', 'CARGO',
+      'TRAFFIC', 'INSPECTION', 'SAFETY', 'BADGE', 'CARD', 'CONTROL', 'POSITION', 'DEPARTMENT',
+      'DIVISION', 'NATIONALITY', 'GROUP', 'STATUS', 'DUTY', 'SERIAL', 'NUMBER', 'RIYADH', 'DAMMAM', 'MEDINA'
+    ]);
+
+    // Walks the OCR word list (each word carries its own on-image position), stitches
+    // words that sit next to each other on the same visual line into short phrases, and
+    // scores each phrase by how name-shaped it looks. Returns the top few — plural, on
+    // purpose — so a wrong top guess is one tap away from being fixed, not a dead end.
+    // Company-agnostic layout signal: nearly every ID badge — regardless of employer,
+    // authority, or template — puts the holder's name directly under their photo. Instead
+    // of leaning on a list of known company/aviation words (which only helps for badges
+    // we've already seen), this locates the headshot itself via a lightweight skin-tone
+    // density scan, so the name-line bonus below works for a badge from ANY company.
+    function badgeFindFaceRegion(canvas) {
+      const ctx = canvas.getContext('2d');
+      const w = canvas.width, h = canvas.height;
+      const frame = ctx.getImageData(0, 0, w, h);
+      const px = frame.data;
+
+      const tile = 16;
+      const cols = Math.ceil(w / tile), rows = Math.ceil(h / tile);
+      const density = new Float32Array(cols * rows);
+
+      for (let ty = 0; ty < rows; ty++) {
+        for (let tx = 0; tx < cols; tx++) {
+          const x0 = tx * tile, y0 = ty * tile;
+          const x1 = Math.min(w, x0 + tile), y1 = Math.min(h, y0 + tile);
+          let skinCount = 0, sampleCount = 0;
+          for (let y = y0; y < y1; y += 2) {
+            for (let x = x0; x < x1; x += 2) {
+              const idx = (y * w + x) * 4;
+              const r = px[idx], g = px[idx + 1], b = px[idx + 2];
+              const maxc = Math.max(r, g, b), minc = Math.min(r, g, b);
+              // Classic RGB skin-tone rule (Peer et al.) — works across skin tones and
+              // lighting well enough to just locate "roughly where a face is", which is
+              // all this needs.
+              const isSkin = r > 95 && g > 40 && b > 20 && (maxc - minc) > 15 &&
+                Math.abs(r - g) > 15 && r > g && r > b;
+              if (isSkin) skinCount++;
+              sampleCount++;
+            }
+          }
+          density[ty * cols + tx] = sampleCount ? skinCount / sampleCount : 0;
+        }
+      }
+
+      // Integral image over the tile-density grid for O(1) window sums.
+      const stride = cols + 1;
+      const integral = new Float64Array(stride * (rows + 1));
+      for (let ty = 0; ty < rows; ty++) {
+        let rowSum = 0;
+        for (let tx = 0; tx < cols; tx++) {
+          rowSum += density[ty * cols + tx];
+          integral[(ty + 1) * stride + (tx + 1)] = integral[ty * stride + (tx + 1)] + rowSum;
+        }
+      }
+      const windowSum = (tx0, ty0, tx1, ty1) =>
+        integral[ty1 * stride + tx1] - integral[ty0 * stride + tx1] - integral[ty1 * stride + tx0] + integral[ty0 * stride + tx0];
+
+      // ID photos vary hugely in how much of the frame they fill — a badge photographed
+      // close-up vs. a promotional shot with lanyard/background/multiple cards visible can
+      // differ 5x in relative face size. Verified empirically against real badge photos:
+      // measured actual best-fit window at ~6% of canvas width in one case, far below what
+      // was tried before (search started at 16% and never found it, always returning null).
+      // A square window also fits a circular photo crop noticeably better than a tall
+      // passport-style rectangle, so both aspects are tried.
+      let best = null;
+      for (const wFrac of [0.06, 0.08, 0.10, 0.13, 0.16, 0.20, 0.26, 0.32]) {
+        for (const aspect of [1.0, 1.25]) {
+          const winWTiles = Math.max(2, Math.round((w * wFrac) / tile));
+          const winHTiles = Math.max(2, Math.round(winWTiles * aspect));
+          if (winWTiles >= cols || winHTiles >= rows) continue;
+          for (let ty0 = 0; ty0 + winHTiles <= rows; ty0 += 2) {
+            for (let tx0 = 0; tx0 + winWTiles <= cols; tx0 += 2) {
+              const sum = windowSum(tx0, ty0, tx0 + winWTiles, ty0 + winHTiles);
+              const avg = sum / (winWTiles * winHTiles);
+              if (!best || avg > best.avg) {
+                best = { avg, tx0, ty0, tx1: tx0 + winWTiles, ty1: ty0 + winHTiles };
+              }
+            }
+          }
+        }
+      }
+
+      // Require a meaningful concentration of skin-toned pixels — otherwise this photo
+      // likely has no visible face in frame (badly cropped, glare, etc.) and the caller
+      // should fall back to scoring without a positional bonus rather than trust noise.
+      if (!best || best.avg < 0.18) return null;
+
+      return {
+        x0: best.tx0 * tile, y0: best.ty0 * tile,
+        x1: best.tx1 * tile, y1: best.ty1 * tile
+      };
+    }
+
+    function badgeRankNameCandidates(ocrWords, faceRegion) {
+      const words = (ocrWords || [])
+        .map(w => ({ text: (w.text || '').toUpperCase().replace(/[^A-Z'\-]/g, ''), confidence: w.confidence, bbox: w.bbox }))
+        .filter(w => w.text.length >= 2 && w.confidence >= 20 && w.bbox);
+
+      const phrases = [];
+      for (let i = 0; i < words.length; i++) {
+        const phrase = [words[i]];
+        for (let j = i + 1; j < words.length && phrase.length < 4; j++) {
+          const last = phrase[phrase.length - 1];
+          const next = words[j];
+          const lineHeight = Math.max(1, last.bbox.y1 - last.bbox.y0);
+          const onSameLine = Math.abs(next.bbox.y0 - last.bbox.y0) < lineHeight * 0.7;
+          const wordWidth = Math.max(1, last.bbox.x1 - last.bbox.x0);
+          const gap = next.bbox.x0 - last.bbox.x1;
+          if (onSameLine && gap > -6 && gap < wordWidth * 2.5 + 40) {
+            phrase.push(next);
+          } else {
+            break;
+          }
+        }
+        if (phrase.length >= 2) phrases.push(phrase);
+      }
+
+      const seenText = new Set();
+      const scored = [];
+      for (const phrase of phrases) {
+        const tokens = phrase.map(p => p.text);
+        if (tokens.some(t => BADGE_NOISE_WORDS.has(t))) continue;
+
+        const text = tokens.join(' ');
+        if (seenText.has(text)) continue;
+        seenText.add(text);
+
+        let score = phrase.reduce((s, p) => s + p.confidence, 0) / phrase.length;
+        if (tokens.length === 2 || tokens.length === 3) score += 12;
+        if (tokens.every(t => /[AEIOUY]/.test(t))) score += 8;
+        if (tokens.some(t => /(.)\1{2,}/.test(t))) score -= 20;
+
+        // The universal, company-agnostic signal: a phrase sitting in the band right below
+        // the detected headshot, roughly centered under it, is overwhelmingly likely to be
+        // the name line — this outweighs vocabulary-based filtering, which only helps for
+        // badge templates already seen.
+        if (faceRegion) {
+          const faceH = faceRegion.y1 - faceRegion.y0;
+          const faceCx = (faceRegion.x0 + faceRegion.x1) / 2;
+          const nameBandTop = faceRegion.y1 - faceH * 0.15;
+          const nameBandBottom = faceRegion.y1 + faceH * 1.4;
+          const phraseCy = (phrase[0].bbox.y0 + phrase[phrase.length - 1].bbox.y1) / 2;
+          const phraseCx = (phrase[0].bbox.x0 + phrase[phrase.length - 1].bbox.x1) / 2;
+          const faceW = faceRegion.x1 - faceRegion.x0;
+          const inBand = phraseCy >= nameBandTop && phraseCy <= nameBandBottom;
+          const nearX = Math.abs(phraseCx - faceCx) < faceW * 2.2;
+          if (inBand && nearX) score += 35;
+        }
+
+        scored.push({ text, score });
+      }
+
+      scored.sort((a, b) => b.score - a.score);
+      return scored.slice(0, 4);
+    }
+
+    // A fresh Tesseract worker downloads its WASM engine + language data (several MB) from
+    // a CDN before it can recognize anything — doing that on every single scan is what was
+    // causing "Could not process that photo" on real mobile networks (airport WiFi/cellular
+    // timing out mid-download). One worker is now created lazily on first use and kept alive
+    // for the whole session; badgeWarmUpOCR() also kicks that download off in the background
+    // as soon as a flight session starts, so it is usually already warm by the time anyone
+    // taps "Scan ID Badge".
+    let badgeWorkerPromise = null;
+
+    function badgeGetWorker() {
+      if (!badgeWorkerPromise) {
+        badgeWorkerPromise = Tesseract.createWorker('eng').catch(err => {
+          badgeWorkerPromise = null; // let the next attempt retry from scratch instead of staying stuck
+          throw err;
+        });
+      }
+      return badgeWorkerPromise;
+    }
+
+    function badgeWarmUpOCR() {
+      badgeGetWorker().catch(() => {}); // fire-and-forget; real errors surface at scan time
+    }
+
+    async function badgeRunOCR(rawCanvas, processedCanvas, faceRegion, onProgress) {
+      const withTimeout = (p, ms) => Promise.race([
+        p,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Scan is taking too long on this connection')), ms))
+      ]);
+
+      let worker;
+      try {
+        // The OCR engine (WASM core + language data, several MB) only needs downloading
+        // once per session, but that first download can be slow on airport WiFi/cellular —
+        // give it real room before giving up.
+        worker = await withTimeout(badgeGetWorker(), 45000);
+      } catch (err) {
+        badgeWorkerPromise = null;
+        throw new Error('OCR engine could not load — check your connection and try again');
+      }
+
+      try {
+        // Uppercase-only used to be assumed here because GACA/Swissport badges print the
+        // name in ALL CAPS — but plenty of company badges print it in Title Case ("Martin
+        // Kularthan"), and forcing that glyph shape through an uppercase-only whitelist was
+        // producing near-total garbage (confidence ~0 on almost every letter). Both cases
+        // are now allowed; everything downstream already normalizes to uppercase for matching.
+        await worker.setParameters({ tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz '-", tessedit_pageseg_mode: '11' });
+
+        // Pass 1: the plain photo as captured. Best for already-clean, high-contrast cards
+        // (a crisp digital template, a well-lit straight-on shot) — the adaptive threshold
+        // in passes 2-3 is tuned to rescue noisy real-world photos, but can just as easily
+        // erase large or light-weight lettering that never needed rescuing.
+        let res = await withTimeout(worker.recognize(rawCanvas), 20000);
+        let candidates = badgeRankNameCandidates(res.data.words, faceRegion);
+
+        // Pass 2: the lighting/watermark-corrected version, for badges where sun glare,
+        // shadow, or a security watermark actually needed cleaning up.
+        if (candidates.length === 0) {
+          if (onProgress) onProgress('🔁 Refining scan mode...');
+          res = await withTimeout(worker.recognize(processedCanvas), 20000);
+          candidates = badgeRankNameCandidates(res.data.words, faceRegion);
+        }
+
+        // Pass 3: uniform-block segmentation as a last resort, still on the corrected image.
+        if (candidates.length === 0) {
+          await worker.setParameters({ tessedit_pageseg_mode: '6' });
+          res = await withTimeout(worker.recognize(processedCanvas), 20000);
+          candidates = badgeRankNameCandidates(res.data.words, faceRegion);
+        }
+        return candidates;
+      } catch (err) {
+        // The worker may be left in a bad state after a failed recognize — drop it so the
+        // next scan starts clean instead of repeating the same failure forever.
+        try { await worker.terminate(); } catch (e) {}
+        badgeWorkerPromise = null;
+        throw err;
+      }
+    }
+
+    function badgeSnapshot(canvas, maxWidth) {
+      const w = maxWidth || 420;
+      const scale = Math.min(1, w / canvas.width);
+      const out = document.createElement('canvas');
+      out.width = Math.max(1, Math.round(canvas.width * scale));
+      out.height = Math.max(1, Math.round(canvas.height * scale));
+      out.getContext('2d').drawImage(canvas, 0, 0, out.width, out.height);
+      return out.toDataURL('image/jpeg', 0.78);
+    }
+
+    function badgeTitleCase(text) {
+      return String(text || '').toLowerCase().split(' ').filter(Boolean)
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+    }
+
+    async function processSmartBadge(input, sectionType) {
+      if (!input.files || !input.files[0] || isScanningBadge) return;
+
+      isScanningBadge = true;
+      const file = input.files[0];
+      const fb = document.getElementById('ocrFeedback');
+      const label = document.getElementById(`scan-label-${sectionType}`);
+      const labelOriginalText = label ? label.innerHTML : '';
+      if (label) { label.classList.remove('needs-attention'); label.classList.add('scan-active'); label.innerHTML = '⏳ Scanning Badge...'; }
+      if (fb) fb.innerText = '⚡ Reading badge...';
+
+      let objectUrl = null;
+      try {
+        const img = new Image();
+        objectUrl = URL.createObjectURL(file);
+        img.src = objectUrl;
+        await new Promise((resolve, reject) => {
+          img.onload = resolve;
+          img.onerror = () => reject(new Error('This photo could not be opened — try taking it again'));
+        });
+
+        const canvas = badgeOrientCanvas(img);
+        // Locate the headshot while color is still intact — thresholding below converts
+        // everything to black/white and would erase the skin-tone signal this needs.
+        const faceRegion = badgeFindFaceRegion(canvas);
+        // Keep an unprocessed copy: the adaptive threshold below is tuned to rescue noisy
+        // real-world photos (glare, shadows, security watermarks) but can actually erase
+        // large/light-weight lettering on an already-clean, high-contrast card (a crisp
+        // stock template photographed straight-on, for example) — so both get tried.
+        const rawCanvas = badgeCloneCanvas(canvas);
+        badgeEvenOutLighting(canvas);
+
+        if (fb) fb.innerText = '🔍 Detecting name candidates...';
+        const candidates = await badgeRunOCR(rawCanvas, canvas, faceRegion, (msg) => { if (fb) fb.innerText = msg; });
+
+        const previewDataURL = badgeSnapshot(canvas);
+
+        if (fb) fb.innerText = candidates.length
+          ? '🔎 Pick the correct name, or edit it.'
+          : '⚠️ Could not read a name — type it in.';
+
+        openBadgeConfirmModal(previewDataURL, candidates, sectionType, input);
+      } catch (err) {
+        // Show the real reason (network/CDN hiccup, bad photo, timeout, ...) instead of a
+        // dead-end message, so a repeat failure is diagnosable instead of a mystery.
+        const reason = (err && err.message) ? err.message : 'Unknown error';
+        if (fb) fb.innerText = `⚠️ ${reason} — tap Scan to try again.`;
+        console.error('Badge scan failed:', err);
+      } finally {
+        if (objectUrl) URL.revokeObjectURL(objectUrl);
+        isScanningBadge = false;
+        if (label) { label.classList.remove('scan-active'); label.innerHTML = labelOriginalText; }
+        input.value = '';
+      }
+    }
+
+    // Every scan lands here for human confirmation before it touches the log — OCR never
+    // writes straight to the Personnel table, so a misread never becomes an official record.
+    function openBadgeConfirmModal(previewDataURL, candidates, sectionType, inputEl) {
+      badgeScanState = { sectionType, inputEl, time: getNow24H() };
+      document.getElementById('badgePreviewImg').src = previewDataURL;
+
+      const nameInput = document.getElementById('badgeNameInput');
+      const chipsBox = document.getElementById('badgeCandidateChips');
+      chipsBox.innerHTML = '';
+
+      if (candidates.length > 0) {
+        candidates.forEach((c, i) => {
+          const chip = document.createElement('button');
+          chip.type = 'button';
+          chip.className = 'badge-candidate-chip' + (i === 0 ? ' selected' : '');
+          chip.innerText = badgeTitleCase(c.text);
+          chip.onclick = () => {
+            chipsBox.querySelectorAll('.badge-candidate-chip').forEach(el => el.classList.remove('selected'));
+            chip.classList.add('selected');
+            nameInput.value = badgeTitleCase(c.text);
+          };
+          chipsBox.appendChild(chip);
+        });
+        nameInput.value = badgeTitleCase(candidates[0].text);
+      } else {
+        nameInput.value = '';
+      }
+
+      const confEl = document.getElementById('badgeConfidenceLabel');
+      confEl.classList.remove('conf-high', 'conf-med', 'conf-low');
+      if (candidates.length === 0) {
+        confEl.innerText = '⚠️ No candidates found — type the name manually';
+        confEl.classList.add('conf-low');
+      } else if (candidates[0].score >= 75) {
+        confEl.innerText = `✓ ${candidates.length} match(es) found — top pick looks strong`;
+        confEl.classList.add('conf-high');
+      } else {
+        confEl.innerText = `~ ${candidates.length} match(es) found — please verify`;
+        confEl.classList.add('conf-med');
+      }
+
+      document.body.classList.add('modal-open');
+      document.getElementById('badgeConfirmModal').style.display = 'flex';
+
+      requestAnimationFrame(() => {
+        nameInput.focus();
+        nameInput.select();
+      });
+    }
+
+    function closeBadgeConfirmModal() {
+      document.body.classList.remove('modal-open');
+      document.getElementById('badgeConfirmModal').style.display = 'none';
+      badgeScanState = null;
+    }
+
+    // Shared by both the OCR badge-photo flow and the barcode fast-path below, so "log in vs.
+    // sign out the same person" logic lives in exactly one place instead of drifting apart.
+    function logOrSignOutByName(finalName, sectionType, curTime) {
+      const fb = document.getElementById('ocrFeedback');
+      switchForm(sectionType);
+
+      let existingRow = null;
+      document.querySelectorAll(`#section-${sectionType} #log-body tr`).forEach(tr => {
+        const nCell = tr.querySelector('.emp-name');
+        const outCell = tr.querySelector('.emp-time-out');
+        if (nCell && nCell.innerText.trim().toLowerCase() === finalName.toLowerCase() && !outCell.value.trim()) {
+          existingRow = tr;
+        }
+      });
+
+      if (existingRow) {
+        const timeInVal = existingRow.querySelector('.emp-time-in').value.trim();
+        if (timeInVal === curTime) {
+          if (!confirm(`Staff [${finalName}] was logged in at ${curTime}. Record their checkout now?`)) {
+            if (fb) fb.innerText = `ℹ️ Checkout cancelled for [${finalName}].`;
+            return false;
+          }
+        }
+        existingRow.querySelector('.emp-time-out').value = curTime;
+        if (fb) fb.innerText = `👋 Staff checked out: [${finalName}] at [${curTime}]`;
+      } else {
+        smartLogEmployee(finalName, "", "", "", curTime, sectionType);
+        if (fb) fb.innerText = `✅ Staff logged in: [${finalName}] at [${curTime}]`;
+      }
+
+      updateActiveStaffChips();
+      collectAndSaveData();
+      return true;
+    }
+
+    function confirmBadgeScan() {
+      if (!badgeScanState) return;
+      const nameInput = document.getElementById('badgeNameInput');
+      const finalName = nameInput.value.trim();
+      if (!finalName) {
+        nameInput.focus();
+        nameInput.style.borderColor = '#dc2626';
+        setTimeout(() => { nameInput.style.borderColor = ''; }, 900);
+        return;
+      }
+
+      const sectionType = badgeScanState.sectionType;
+      const curTime = badgeScanState.time || getNow24H();
+      const logged = logOrSignOutByName(finalName, sectionType, curTime);
+
+      // This OCR confirmation may have been triggered by the barcode scanner to register a
+      // badge it had never seen before — if so, remember the name against that barcode ID now,
+      // so every future scan of this same badge is an instant, error-free lookup instead of a
+      // fresh visual guess.
+      if (logged && pendingBarcodeRegistration && pendingBarcodeRegistration.sectionType === sectionType) {
+        saveBadgeRegistryEntry(pendingBarcodeRegistration.barcodeId, finalName);
+      }
+      pendingBarcodeRegistration = null;
+
+      closeBadgeConfirmModal();
+    }
+
+    function retryBadgeScan() {
+      const inputEl = badgeScanState ? badgeScanState.inputEl : null;
+      closeBadgeConfirmModal();
+      if (inputEl) {
+        inputEl.value = '';
+        setTimeout(() => inputEl.click(), 150);
+      }
+    }
+
+    function cancelBadgeScan() {
+      const fb = document.getElementById('ocrFeedback');
+      if (fb) fb.innerText = 'ℹ️ Scan cancelled.';
+      pendingBarcodeRegistration = null;
+      closeBadgeConfirmModal();
+    }
+
+    function smartLogEmployee(name, desig, purpose, dept, timeIn, sectionType) {
+      const tbody = document.querySelector(`#section-${sectionType} #log-body`);
+      if(!tbody) return;
+
+      let isAlreadyInside = false;
+      tbody.querySelectorAll('tr').forEach(tr => {
+        const n = tr.querySelector('.emp-name')?.innerText.trim().toLowerCase();
+        const o = tr.querySelector('.emp-time-out')?.value.trim();
+        if (n === name.toLowerCase() && !o) isAlreadyInside = true;
+      });
+
+      if (isAlreadyInside) {
+        alert(`Staff [${name}] is already logged in inside! Please sign them out first.`);
+        return;
+      }
+
+      const firstRow = tbody.querySelector('tr');
+      const firstRowName = firstRow ? firstRow.querySelector('.emp-name').innerText.trim() : "filled";
+      
+      let targetRow;
+      if (firstRow && (firstRowName === "" || firstRowName === "Name")) {
+        targetRow = firstRow;
+      } else {
+        addRow(sectionType, true); 
+        targetRow = tbody.lastElementChild;
+      }
+      
+      targetRow.querySelector('.emp-name').innerText = name;
+      if(purpose !== "") targetRow.querySelector('.emp-purpose').innerText = purpose;
+      if(dept !== "") targetRow.querySelector('.emp-dept').innerText = dept;
+      
+      targetRow.querySelector('.emp-time-in').value = timeIn || getNow24H();
+      targetRow.querySelector('.emp-time-out').value = "";
+      
+      updateActiveStaffChips();
+      collectAndSaveData();
+    }
+
+    // ============================================================================
+    // Barcode Scanner — a badge's barcode only ever encodes its own ID number (confirmed
+    // against real GACA/Swissport badges: it just repeats the "JED-XXX-XXXX" printed next to
+    // it), never the holder's name, so this can never replace reading the name. What it CAN
+    // do is turn a REPEAT scan of the same badge into an exact, error-free lookup: the first
+    // time a badge is seen, the officer still confirms the name via the OCR flow above, and
+    // that confirmed name is then remembered against this badge's ID (locally on this device).
+    // Every later scan of that same badge is then a plain ID match — not a fresh visual guess —
+    // so accuracy only improves the more the workforce cycles through.
+    //
+    // Reading the barcode itself needs a live camera feed, not the single whole-card photo the
+    // OCR flow captures: tested against these same real badge photos, decoding the barcode from
+    // one whole-card shot succeeded on well under half of them, because the barcode ends up as
+    // a tiny, low-resolution strip within a much larger frame. A live feed lets the officer
+    // close in on just the barcode the way any handheld scanner works, and tries many frames
+    // instead of just one.
+    // ============================================================================
+
+    const BADGE_REGISTRY_KEY = 'swissport_badge_registry_v1';
+
+    function loadBadgeRegistry() {
+      try {
+        return JSON.parse(localStorage.getItem(BADGE_REGISTRY_KEY) || '{}');
+      } catch (e) {
+        return {};
+      }
+    }
+
+    function saveBadgeRegistryEntry(barcodeId, name) {
+      if (!barcodeId || !name) return;
+      try {
+        const registry = loadBadgeRegistry();
+        registry[barcodeId] = name;
+        localStorage.setItem(BADGE_REGISTRY_KEY, JSON.stringify(registry));
+      } catch (e) { /* storage full/unavailable — this scan still logs the entry, it just won't be remembered for next time */ }
+    }
+
+    // A live camera feed was tried first and dropped after real-device testing: it fights the
+    // phone's own autofocus (getting close enough to make the barcode readable pushed past the
+    // lens's minimum focus distance, so the image stayed blurry regardless of distance or how
+    // long the officer held still). A single photo through the phone's own camera app — the
+    // same capture path "Scan ID Badge" already uses — starts from a much sharper source.
+    //
+    // Decoding the barcode's BARS from that photo was tried next and dropped too — narrow-crop
+    // approaches (precisely locating the bars, then the digits, then the surrounding text) were
+    // all tried in turn and each was LESS reliable than the simplest approach of all: OCR the
+    // WHOLE card exactly the way the name-reading pass already does (proven at 8/10 on real
+    // badges), and just search the recognized text for the ID pattern. Verified head-to-head
+    // against the same 10 real badge photos: every attempt at cropping down to just the barcode
+    // or just the ID text scored WORSE than reading the whole card — tesseract reads a piece of
+    // text more accurately with its normal surrounding context than in an isolated sliver, the
+    // same reason the name-reading pass was never cropped down to just the name line either.
+    // The known station code (the officer already picked it when this session started) is used
+    // as a required prefix in the search pattern — free validation that rejects an unrelated
+    // digit run elsewhere on the card (an expiry date, a badge-slot number) instead of trusting
+    // whatever looks vaguely ID-shaped.
+    async function readBadgeIdFromPhoto(worker, img, onProgress) {
+      if (onProgress) onProgress('🔍 Reading the badge ID number...');
+
+      const canvas = badgeOrientCanvas(img);
+      const rawCanvas = badgeCloneCanvas(canvas);
+      badgeEvenOutLighting(canvas); // canvas is now the watermark/glare-corrected version
+
+      const station = (currentStation || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+      if (!station) return null;
+      const idPattern = new RegExp(station + '\\s*[-\u2013\u2014]?\\s*\\d{2,4}\\s*[-\u2013\u2014]?\\s*\\d{2,5}', 'gi');
+
+      try {
+        await worker.setParameters({ tessedit_char_whitelist: '', tessedit_pageseg_mode: '3' });
+        for (const variant of [rawCanvas, canvas]) {
+          const res = await worker.recognize(variant);
+          const matches = (res.data.text || '').toUpperCase().match(idPattern);
+          if (matches && matches.length) {
+            return matches[0].replace(/\s+/g, '');
+          }
+        }
+        return null;
+      } finally {
+        // Leave the shared worker's parameters as the name-OCR pass expects them, in case
+        // another scan reuses this same worker right after.
+        await worker.setParameters({ tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz '-", tessedit_pageseg_mode: '11' });
+      }
+    }
+
+    async function processBarcodePhoto(input, sectionType) {
+      if (!input.files || !input.files[0] || isScanningBadge) return;
+
+      isScanningBadge = true;
+      const file = input.files[0];
+      const fb = document.getElementById('ocrFeedback');
+      const label = document.getElementById(`barcode-label-${sectionType}`);
+      const labelOriginalText = label ? label.innerHTML : '';
+      if (label) { label.classList.add('scan-active'); label.innerHTML = '⏳ Reading Badge ID...'; }
+      if (fb) fb.innerText = '⚡ Loading photo...';
+
+      let objectUrl = null;
+      try {
+        const img = new Image();
+        objectUrl = URL.createObjectURL(file);
+        img.src = objectUrl;
+        await new Promise((resolve, reject) => {
+          img.onload = resolve;
+          img.onerror = () => reject(new Error('This photo could not be opened — try taking it again'));
+        });
+
+        let worker;
+        try {
+          worker = await badgeGetWorker();
+        } catch (err) {
+          throw new Error('OCR engine could not load — check your connection and try again');
+        }
+
+        const barcodeId = await readBadgeIdFromPhoto(worker, img, (msg) => { if (fb) fb.innerText = msg; });
+
+        if (barcodeId) {
+          handleBarcodeDecoded(barcodeId, sectionType);
+        } else {
+          if (fb) fb.innerText = '⚠️ Could not read the ID number next to the barcode — try better lighting, or use Scan ID Badge instead.';
+        }
+      } catch (err) {
+        const reason = (err && err.message) ? err.message : 'Unknown error';
+        if (fb) fb.innerText = `⚠️ ${reason} — tap Scan Barcode to try again.`;
+        console.error('Barcode scan failed:', err);
+      } finally {
+        if (objectUrl) URL.revokeObjectURL(objectUrl);
+        isScanningBadge = false;
+        if (label) { label.classList.remove('scan-active'); label.innerHTML = labelOriginalText; }
+        input.value = '';
+      }
+    }
+
+    function handleBarcodeDecoded(barcodeId, sectionType) {
+      const fb = document.getElementById('ocrFeedback');
+      const registry = loadBadgeRegistry();
+      const knownName = registry[barcodeId];
+
+      if (knownName) {
+        openBarcodeMatchModal(knownName, barcodeId, sectionType);
+      } else {
+        if (fb) fb.innerText = `🆕 New badge (${barcodeId}) — tap "📷 Scan ID Badge" below to register the name.`;
+        pendingBarcodeRegistration = { barcodeId, sectionType };
+        // Deliberately NOT auto-opening the camera here (e.g. via inputEl.click()) — verified
+        // this can silently fail on a real browser: by the time the barcode ID finishes
+        // reading (which can take anywhere from under a second to over a minute on a cold
+        // OCR-engine download), too much time has passed since the officer's last actual tap
+        // for the browser to still treat a script-triggered click as a genuine user gesture, so
+        // the camera/file picker just never opens. Highlighting the real button and having the
+        // officer tap it themselves is a fresh gesture every time, so it always works.
+        const label = document.getElementById(`scan-label-${sectionType}`);
+        if (label) label.classList.add('needs-attention');
+      }
+    }
+
+    let barcodeMatchState = null;
+
+    function openBarcodeMatchModal(name, barcodeId, sectionType) {
+      barcodeMatchState = { name, barcodeId, sectionType, time: getNow24H() };
+      document.getElementById('barcodeMatchName').innerText = name;
+      document.getElementById('barcodeMatchId').innerText = barcodeId;
+      document.body.classList.add('modal-open');
+      document.getElementById('barcodeMatchModal').style.display = 'flex';
+    }
+
+    function closeBarcodeMatchModal() {
+      document.body.classList.remove('modal-open');
+      document.getElementById('barcodeMatchModal').style.display = 'none';
+      barcodeMatchState = null;
+    }
+
+    function confirmBarcodeMatch() {
+      if (!barcodeMatchState) return;
+      const { name, sectionType, time } = barcodeMatchState;
+      logOrSignOutByName(name, sectionType, time);
+      closeBarcodeMatchModal();
+    }
+
+    // The registry can go stale (a badge reissued to someone else, or a bad first-time entry) —
+    // this lets an officer catch that on the spot rather than silently logging the wrong
+    // person, and re-registers the badge against the corrected name they confirm next.
+    function rejectBarcodeMatch() {
+      if (!barcodeMatchState) return;
+      const { barcodeId, sectionType } = barcodeMatchState;
+      closeBarcodeMatchModal();
+      pendingBarcodeRegistration = { barcodeId, sectionType };
+      const fb = document.getElementById('ocrFeedback');
+      if (fb) fb.innerText = `✎ Tap "📷 Scan ID Badge" below to register the correct name for (${barcodeId}).`;
+      const label = document.getElementById(`scan-label-${sectionType}`);
+      if (label) label.classList.add('needs-attention');
+    }
+
+    function resetForm() {
+      if (confirm("Are you sure you want to exit the current operations session?")) {
+        location.reload(); 
+      }
+    }
+    
+    function formatDateNow() { 
+      const d = new Date(); 
+      return `${String(d.getDate()).padStart(2, '0')}-${String(d.getMonth() + 1).padStart(2, '0')}-${d.getFullYear()}`; 
+    }
+    
+    function getFileName() { 
+      const dateEl = document.querySelector('.form-section .auto-date'); 
+      const date = dateEl ? dateEl.innerText.trim() : formatDateNow(); 
+      return `Swissport_Aviation_Report_${currentStation}_${currentFlight}_${date}.pdf`; 
+    }
+    
+    // Completely un-cut, proportional single-page per section PDF generator without scroll displacement
+    async function createPDFDocument() {
+      const currentScrollY = window.scrollY || window.pageYOffset;
+      collectAndSaveData();
+      
+      const cabinEl = document.getElementById('section-cabin');
+      const holdEl = document.getElementById('section-hold');
+      const cabinWasHidden = cabinEl.style.display === 'none';
+      const holdWasHidden = holdEl.style.display === 'none';
+      
+      cabinEl.style.display = 'block';
+      holdEl.style.display = 'block';
+      
+      const cabinClone = cabinEl.cloneNode(true);
+      const holdClone = holdEl.cloneNode(true);
+      // Clones must render at full, un-scaled size for a crisp PDF regardless of the
+      // mobile auto-fit zoom currently applied on screen.
+      cabinClone.style.transform = 'none';
+      holdClone.style.transform = 'none';
+      cabinClone.style.width = '1000px';
+      holdClone.style.width = '1000px';
+      
+      const syncValues = (orig, clone) => {
+        const origInputs = orig.querySelectorAll('input, select, textarea');
+        const cloneInputs = clone.querySelectorAll('input, select, textarea');
+        for(let i=0; i<origInputs.length; i++) {
+            if(origInputs[i].type === 'checkbox') cloneInputs[i].checked = origInputs[i].checked;
+            else if(origInputs[i].tagName.toLowerCase() === 'select') { cloneInputs[i].value = origInputs[i].value; cloneInputs[i].selectedIndex = origInputs[i].selectedIndex; }
+            else cloneInputs[i].value = origInputs[i].value;
+        }
+        const origEdits = orig.querySelectorAll('[contenteditable]');
+        const cloneEdits = clone.querySelectorAll('[contenteditable]');
+        for(let i=0; i<origEdits.length; i++) cloneEdits[i].innerText = origEdits[i].innerText;
+      };
+      
+      syncValues(cabinEl, cabinClone); 
+      syncValues(holdEl, holdClone);
+      
+      cabinEl.style.display = cabinWasHidden ? 'none' : 'block'; 
+      holdEl.style.display = holdWasHidden ? 'none' : 'block';
+      
+      const removeNoPrint = (clone) => {
+          const elements = clone.querySelectorAll('.no-print, .btn-row-action, .action-btn');
+          elements.forEach(el => el.parentNode.removeChild(el));
+          
+          const delHeaders = clone.querySelectorAll('th:last-child');
+          delHeaders.forEach(th => { if(th.innerText.includes('Del')) th.parentNode.removeChild(th); });
+          const delCells = clone.querySelectorAll('td:last-child');
+          delCells.forEach(td => { if(td.querySelector('.action-btn') || td.innerHTML.includes('✕')) td.parentNode.removeChild(td); });
+      };
+      removeNoPrint(cabinClone);
+      removeNoPrint(holdClone);
+
+      const flattenForPrint = (container) => {
+        container.querySelectorAll('[contenteditable]').forEach(el => { el.removeAttribute('contenteditable'); el.style.border = 'none'; el.style.background = 'transparent'; });
+        
+        container.querySelectorAll('input[type="checkbox"]').forEach(chk => {
+          const span = document.createElement('span');
+          span.style.fontSize = '14px';
+          span.style.fontWeight = 'bold';
+          span.style.display = 'inline-block';
+          span.innerText = chk.checked ? '✓' : '';
+          chk.parentNode.replaceChild(span, chk);
+        });
+
+        container.querySelectorAll('input:not([type="file"])').forEach(inp => { 
+          const span = document.createElement('span'); 
+          span.style.cssText = inp.style.cssText; 
+          span.className = inp.className; 
+          span.style.border = 'none'; 
+          span.style.background = 'transparent'; 
+          span.style.display = 'inline-block'; 
+          span.style.minHeight = '18px'; 
+          span.innerText = inp.value || ''; 
+          inp.parentNode.replaceChild(span, inp); 
+        });
+
+        container.querySelectorAll('select').forEach(sel => { 
+          const span = document.createElement('span'); 
+          span.style.cssText = sel.style.cssText; 
+          span.className = sel.className; 
+          span.style.border = 'none'; 
+          span.style.background = 'transparent'; 
+          span.style.display = 'inline-block'; 
+          span.style.minHeight = '18px'; 
+          const text = sel.options[sel.selectedIndex]?.text || ''; 
+          span.innerText = text.includes('Role') ? '' : text; 
+          sel.parentNode.replaceChild(span, sel); 
+        });
+        
+        container.querySelectorAll('textarea').forEach(ta => { 
+            const div = document.createElement('div'); 
+            div.style.cssText = ta.style.cssText; 
+            div.className = ta.className; 
+            div.style.border = 'none'; 
+            div.style.background = 'transparent'; 
+            div.style.whiteSpace = 'pre-wrap'; 
+            div.style.wordBreak = 'break-word';
+            div.style.overflowWrap = 'break-word';
+            div.style.minHeight = '55px'; 
+            div.innerText = ta.value || ''; 
+            ta.parentNode.replaceChild(div, ta); 
+        });
+      };
+      
+      flattenForPrint(cabinClone); 
+      flattenForPrint(holdClone);
+      
+      const printContainer = document.createElement('div'); 
+      printContainer.id = 'temp-print-box';
+      printContainer.style.position = 'fixed';
+      printContainer.style.top = '0';
+      printContainer.style.left = '0';
+      printContainer.style.opacity = '0.01';
+      printContainer.style.pointerEvents = 'none';
+      printContainer.style.width = '1000px';
+      printContainer.style.zIndex = '-9999';
+      
+      cabinClone.style.background = '#fff';
+      cabinClone.style.padding = '14px';
+      cabinClone.style.boxSizing = 'border-box';
+      
+      holdClone.style.background = '#fff';
+      holdClone.style.padding = '14px';
+      holdClone.style.boxSizing = 'border-box';
+      
+      printContainer.appendChild(cabinClone);
+      printContainer.appendChild(holdClone);
+      document.body.appendChild(printContainer);
+      
+      await new Promise(r => setTimeout(r, 100));
+      
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF({
+        orientation: 'landscape',
+        unit: 'mm',
+        format: 'a4',
+        compress: true
+      });
+      const pageWidth = 297;
+      const pageHeight = 210;
+      const margin = 6;
+      const availW = pageWidth - (margin * 2); 
+      const availH = pageHeight - (margin * 2); 
+      
+      // Page 1: Cabin Access - 100% proportional, strictly un-cut
+      const canvasCabin = await html2canvas(cabinClone, { 
+        scale: 2, 
+        logging: false, 
+        useCORS: true, 
+        backgroundColor: '#ffffff',
+        scrollX: 0,
+        scrollY: 0
+      });
+      const imgCabin = canvasCabin.toDataURL('image/jpeg', 0.94);
+      
+      const ratioCabin = Math.min(availW / canvasCabin.width, availH / canvasCabin.height);
+      const wCabin = canvasCabin.width * ratioCabin;
+      const hCabin = canvasCabin.height * ratioCabin;
+      const xCabin = (pageWidth - wCabin) / 2;
+      const yCabin = (pageHeight - hCabin) / 2;
+      doc.addImage(imgCabin, 'JPEG', xCabin, yCabin, wCabin, hCabin, undefined, 'FAST');
+      
+      // Page 2: Hold Control - 100% proportional, strictly un-cut
+      doc.addPage('a4', 'landscape');
+      const canvasHold = await html2canvas(holdClone, { 
+        scale: 2, 
+        logging: false, 
+        useCORS: true, 
+        backgroundColor: '#ffffff',
+        scrollX: 0,
+        scrollY: 0
+      });
+      const imgHold = canvasHold.toDataURL('image/jpeg', 0.94);
+      
+      const ratioHold = Math.min(availW / canvasHold.width, availH / canvasHold.height);
+      const wHold = canvasHold.width * ratioHold;
+      const hHold = canvasHold.height * ratioHold;
+      const xHold = (pageWidth - wHold) / 2;
+      const yHold = (pageHeight - hHold) / 2;
+      doc.addImage(imgHold, 'JPEG', xHold, yHold, wHold, hHold, undefined, 'FAST');
+      
+      document.body.removeChild(printContainer);
+      window.scrollTo(0, currentScrollY);
+      return doc;
+    }
+    
+    async function exportPDF() { 
+      const btn = document.getElementById('btn-pdf');
+      const originalText = btn.innerHTML;
+      const currentScrollY = window.scrollY || window.pageYOffset;
+      btn.innerHTML = '⏳ Exporting PDF...';
+      
+      try {
+        const doc = await createPDFDocument();
+        doc.save(getFileName());
+      } catch(e) {
+        console.error(e);
+        alert('An error occurred while compiling the PDF document.');
+      } finally {
+        btn.innerHTML = originalText;
+        window.scrollTo(0, currentScrollY);
+      }
+    }
+    
+    async function shareFile() {
+      const btn = document.getElementById('btn-share');
+      const originalText = btn.innerHTML;
+      const currentScrollY = window.scrollY || window.pageYOffset;
+      btn.innerHTML = '⏳ Preparing File...';
+      
+      try { 
+        const doc = await createPDFDocument();
+        const filename = getFileName(); 
+        
+        if (navigator.canShare && navigator.share) { 
+          try { 
+            const pdfBlob = doc.output('blob');
+            const file = new File([pdfBlob], filename, { type: 'application/pdf' }); 
+            await navigator.share({ files: [file], title: filename, text: `Security Report: Flight ${currentFlight}` }); 
+          } catch (e) { 
+            if (e.name !== 'AbortError') {
+              alert('Direct sharing unavailable on this browser. Downloading file directly.');
+              doc.save(filename);
+            }
+          } 
+        } else { 
+          doc.save(filename); 
+        } 
+      } catch (e) { 
+        console.error(e);
+        alert('An error occurred during file sharing.');
+      } finally {
+        btn.innerHTML = originalText;
+        window.scrollTo(0, currentScrollY);
+      }
+    }
+
+    const canvas = document.getElementById('signature-pad'); 
+    const ctx = canvas.getContext('2d'); 
+    let isDrawing = false;
+
+    function resizeCanvas() { 
+      const rect = canvas.getBoundingClientRect(); 
+      const dpr = window.devicePixelRatio || 1;
+      
+      let tempImg = null;
+      if (canvas.width > 0 && canvas.height > 0) {
+        tempImg = canvas.toDataURL();
+      }
+
+      canvas.width = rect.width * dpr; 
+      canvas.height = rect.height * dpr; 
+      ctx.scale(dpr, dpr);
+      ctx.lineWidth = 3.2; 
+      ctx.lineCap = 'round'; 
+      ctx.lineJoin = 'round';
+      ctx.strokeStyle = '#0f172a'; 
+
+      if (tempImg && cachedSignatureData) {
+        const img = new Image();
+        img.onload = () => ctx.drawImage(img, 0, 0, rect.width, rect.height);
+        img.src = tempImg;
+      }
+    }
+
+    window.addEventListener('resize', () => {
+      if (document.getElementById('signModal').style.display === 'flex') {
+        resizeCanvas();
+      }
+    });
+
+    function openSignModal(el) { 
+      targetSignElement = el; 
+      cachedSignatureData = null;
+      document.body.classList.add('modal-open');
+      document.getElementById('signModal').style.display = 'flex'; 
+      requestAnimationFrame(() => {
+        resizeCanvas(); 
+        clearCanvas(); 
+      });
+    }
+    
+    function closeSignModal() { 
+      document.body.classList.remove('modal-open');
+      document.getElementById('signModal').style.display = 'none'; 
+      targetSignElement = null; 
+      cachedSignatureData = null;
+    }
+    
+    function clearCanvas() { 
+      ctx.clearRect(0, 0, canvas.width, canvas.height); 
+      cachedSignatureData = null;
+    }
+    
+    // Auto-trim white margins so signatures fill table cells proportionally
+    function getTrimmedCanvas(sourceCanvas) {
+      const sCtx = sourceCanvas.getContext('2d');
+      const w = sourceCanvas.width;
+      const h = sourceCanvas.height;
+      const imgData = sCtx.getImageData(0, 0, w, h);
+      const data = imgData.data;
+
+      let minX = w, minY = h, maxX = 0, maxY = 0;
+      let found = false;
+
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const alpha = data[(y * w + x) * 4 + 3];
+          if (alpha > 20) { 
+            if (x < minX) minX = x;
+            if (x > maxX) maxX = x;
+            if (y < minY) minY = y;
+            if (y > maxY) maxY = y;
+            found = true;
+          }
+        }
+      }
+
+      if (!found) return sourceCanvas;
+
+      const pad = 6;
+      minX = Math.max(0, minX - pad);
+      minY = Math.max(0, minY - pad);
+      maxX = Math.min(w, maxX + pad);
+      maxY = Math.min(h, maxY + pad);
+
+      const trimmedW = maxX - minX;
+      const trimmedH = maxY - minY;
+
+      const trimmedCanvas = document.createElement('canvas');
+      trimmedCanvas.width = trimmedW;
+      trimmedCanvas.height = trimmedH;
+      const tCtx = trimmedCanvas.getContext('2d');
+      tCtx.drawImage(sourceCanvas, minX, minY, trimmedW, trimmedH, 0, 0, trimmedW, trimmedH);
+      return trimmedCanvas;
+    }
+
+    function saveSignature() { 
+      if (targetSignElement) { 
+        const trimmed = getTrimmedCanvas(canvas);
+        
+        // Scale to ideal dimensions for clean cell fit
+        const maxDimension = 320;
+        let finalW = trimmed.width;
+        let finalH = trimmed.height;
+        if (finalW > maxDimension || finalH > 140) {
+          const ratio = Math.min(maxDimension / finalW, 140 / finalH);
+          finalW = Math.round(finalW * ratio);
+          finalH = Math.round(finalH * ratio);
+        }
+
+        const compCanvas = document.createElement('canvas');
+        compCanvas.width = finalW;
+        compCanvas.height = finalH;
+        const compCtx = compCanvas.getContext('2d');
+        compCtx.drawImage(trimmed, 0, 0, finalW, finalH);
+        
+        const optimizedSignature = compCanvas.toDataURL('image/png');
+        targetSignElement.innerHTML = `<img src="${optimizedSignature}" alt="Signature">`; 
+        collectAndSaveData(); 
+      } 
+      closeSignModal(); 
+    }
+
+    function getPos(e) { 
+      const rect = canvas.getBoundingClientRect(); 
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX; 
+      const clientY = e.touches ? e.touches[0].clientY : e.clientY; 
+      
+      const scaleX = canvas.width / (rect.width * (window.devicePixelRatio || 1));
+      const scaleY = canvas.height / (rect.height * (window.devicePixelRatio || 1));
+
+      return { 
+        x: (clientX - rect.left) * scaleX, 
+        y: (clientY - rect.top) * scaleY 
+      }; 
+    }
+
+    function startDraw(e) { 
+      isDrawing = true; 
+      cachedSignatureData = true;
+      const pos = getPos(e); 
+      ctx.beginPath(); 
+      ctx.moveTo(pos.x, pos.y); 
+      if (e.cancelable) e.preventDefault(); 
+    }
+
+    function draw(e) { 
+      if (!isDrawing) return; 
+      const pos = getPos(e); 
+      ctx.lineTo(pos.x, pos.y); 
+      ctx.stroke(); 
+      if (e.cancelable) e.preventDefault(); 
+    }
+
+    function stopDraw() { 
+      isDrawing = false; 
+    }
+
+    canvas.addEventListener('mousedown', startDraw); 
+    canvas.addEventListener('mousemove', draw); 
+    window.addEventListener('mouseup', stopDraw); 
+
+    canvas.addEventListener('touchstart', startDraw, { passive: false }); 
+    canvas.addEventListener('touchmove', draw, { passive: false }); 
+    window.addEventListener('touchend', stopDraw);
+  </script>
 </body>
 </html>
