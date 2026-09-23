@@ -3,250 +3,178 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ماسح بطاقات الموظفين الاحترافي</title>
-    <!-- تحميل مكتبات OpenCV.js و Tesseract.js -->
+    <title>ماسح بطاقات الموظفين - السريع</title>
     <script async src="https://docs.opencv.org/4.x/opencv.js" onload="onOpenCvReady()"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <style>
-        body { font-family: system-ui, -apple-system, sans-serif; text-align: center; background: #f0f2f5; margin: 0; padding: 20px; }
-        .container { display: flex; flex-direction: column; align-items: center; gap: 15px; max-width: 500px; margin: 0 auto; }
+        body { font-family: system-ui, sans-serif; text-align: center; background: #f0f2f5; padding: 20px; }
+        .container { display: flex; flex-direction: column; align-items: center; gap: 15px; max-width: 450px; margin: 0 auto; }
         
-        /* حاوية الفيديو مع إطار التوجيه */
-        .video-wrapper { position: relative; width: 100%; max-width: 480px; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+        .video-wrapper { position: relative; width: 100%; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
         video { width: 100%; display: block; }
         
-        /* إطار التوجيه الميداني (Overlay) */
+        /* إطار التوجيه */
         .guide-box {
             position: absolute;
-            top: 50%;
-            left: 50%;
+            top: 50%; left: 50%;
             transform: translate(-50%, -50%);
-            width: 80%;
-            height: 55%;
-            border: 3px dashed #2196F3;
-            border-radius: 12px;
+            width: 85%; height: 55%;
+            border: 2px dashed #2196F3;
+            border-radius: 8px;
             box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.45);
             pointer-events: none;
-            display: flex;
-            align-items: center;
-            justify-content: center;
         }
-        .guide-text { color: #fff; background: rgba(0,0,0,0.6); padding: 4px 12px; border-radius: 20px; font-size: 0.85rem; }
 
-        button { background: #2196F3; color: white; border: none; padding: 12px 24px; font-size: 1rem; font-weight: bold; border-radius: 8px; cursor: pointer; transition: 0.2s; }
+        /* تحديد المنطقة المخصصة للرقم (الجهة اليمنى السفلية) */
+        .roi-box {
+            position: absolute;
+            bottom: 8%; right: 5%;
+            width: 45%; height: 30%;
+            border: 2px solid #00E676;
+            background: rgba(0, 230, 118, 0.15);
+            border-radius: 4px;
+        }
+        .roi-text { color: #fff; font-size: 0.7rem; background: rgba(0,0,0,0.7); padding: 2px 5px; border-radius: 3px; position: absolute; top: -20px; right: 0; }
+
+        button { background: #2196F3; color: white; border: none; padding: 12px 24px; font-size: 1rem; font-weight: bold; border-radius: 8px; cursor: pointer; }
         button:disabled { background: #b0bec5; cursor: not-allowed; }
         
-        #result { font-size: 1.3rem; font-weight: bold; color: #1b5e20; background: #e8f5e9; padding: 12px 20px; border-radius: 8px; border: 1px solid #a5d6a7; width: 100%; box-sizing: border-box; }
-        #status { color: #555; font-size: 0.95rem; }
-        
-        /* معاينة للبطاقة المعتدلة والمعالجة (اختياري للتأكد) */
-        .preview-section { display: flex; gap: 10px; margin-top: 10px; }
-        .preview-section canvas { width: 140px; border: 1px solid #ccc; border-radius: 4px; }
+        #result { font-size: 1.3rem; font-weight: bold; color: #1b5e20; background: #e8f5e9; padding: 12px; border-radius: 8px; border: 1px solid #a5d6a7; width: 100%; box-sizing: border-box; }
+        #status { color: #555; font-size: 0.9rem; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h2>ماسح بطاقات الموظفين</h2>
-    <p id="status">جاري تحميل مكتبات المعالجة...</p>
+    <h2>ماسح رقم البطاقة (سريع)</h2>
+    <p id="status">جاري تهيئة النظام وتجهيز المحرك...</p>
     
     <div class="video-wrapper">
         <video id="videoInput" autoplay playsinline muted></video>
         <div class="guide-box">
-            <span class="guide-text">ضع البطاقة داخل الإطار</span>
+            <!-- مربع أخضر يحدد مكان الرقم فوق الباركود -->
+            <div class="roi-box">
+                <span class="roi-text">مكان الرقم</span>
+            </div>
         </div>
     </div>
-    
-    <!-- الكانفاس الداخلي لتجهيز الصورة وتطبيق OpenCV -->
-    <canvas id="canvasCrop" style="display:none;"></canvas>
     
     <button id="scanBtn" onclick="captureAndScan()" disabled>التقاط وقراءة الرقم</button>
     
     <div id="result">الرقم المستخرج: ---</div>
 
-    <!-- معاينة للبطاقة المستخرجة والمعالجة لأغراض التصحيح والتأكد -->
-    <div class="preview-section">
-        <div>
-            <div style="font-size: 0.8rem;">البطاقة المقصوصة</div>
-            <canvas id="cardCroppedCanvas"></canvas>
-        </div>
-        <div>
-            <div style="font-size: 0.8rem;">تصفية التلميع</div>
-            <canvas id="cardProcessedCanvas"></canvas>
-        </div>
+    <!-- معاينة المنطقة المقصوصة فقط -->
+    <div>
+        <div style="font-size: 0.8rem; margin-top:5px;">منطقة الرقم المعالجة:</div>
+        <canvas id="roiCanvas" style="border:1px solid #ccc; max-width: 200px;"></canvas>
     </div>
 </div>
 
 <script>
 let isOpenCvReady = false;
+let tesseractWorker = null;
+
+// 1. تهيئة المحرك مسبقاً لمنع التأخير عند الضغط
+async function initTesseract() {
+    tesseractWorker = await Tesseract.createWorker('eng');
+    await tesseractWorker.setParameters({
+        tessedit_char_whitelist: 'JED0123456789-',
+        tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE, // القراءة كسطر واحد فقط لزيادة السرعة
+    });
+    checkReadyStatus();
+}
 
 function onOpenCvReady() {
     isOpenCvReady = true;
-    document.getElementById('status').innerText = "المكتبات جاهزة. قم بتشغيل الكاميرا.";
-    startCamera();
+    checkReadyStatus();
 }
 
-// 1. تشغيل الكاميرا بدقة عالية
+function checkReadyStatus() {
+    if (isOpenCvReady && tesseractWorker) {
+        document.getElementById('status').innerText = "النظام جاهز! ضع الرقم داخل المربع الأخضر واضغط التقاط.";
+        startCamera();
+    }
+}
+
+// تشغيل Tesseract فور فتح الصفحة
+initTesseract();
+
+// 2. تشغيل الكاميرا
 async function startCamera() {
     try {
         const stream = await navigator.mediaDevices.getUserMedia({ 
-            video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } } 
+            video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } } 
         });
         const video = document.getElementById('videoInput');
         video.srcObject = stream;
         document.getElementById('scanBtn').disabled = false;
-        document.getElementById('status').innerText = "وجه البطاقة داخل الإطار ثم اضغط التقاط.";
     } catch (err) {
-        document.getElementById('status').innerText = "تعذر الوصول للكاميرا: " + err.message;
+        document.getElementById('status').innerText = "خطأ في الكاميرا: " + err.message;
     }
 }
 
-// 2. كشف زوايا البطاقة وتعديل الميلان (Perspective Transform)
-function extractAndTransformCard(srcMat) {
+// 3. اقتطاع المنطقة اليمنى السفلية فقط (التي تحتوي الرقم فوق الباركود)
+function getCroppedRoi(srcMat) {
+    // تحديد الإحداثيات بناءً على موقع المربع الأخضر في الجهة اليمنى السفلية
+    let x = Math.floor(srcMat.cols * 0.48);
+    let y = Math.floor(srcMat.rows * 0.48);
+    let width = Math.floor(srcMat.cols * 0.42);
+    let height = Math.floor(srcMat.rows * 0.22);
+
+    let rect = new cv.Rect(x, y, width, height);
+    let roi = srcMat.roi(rect);
+
+    // تحويل للرمادي وتحسين التباين مع إزالة التلميع
     let gray = new cv.Mat();
-    cv.cvtColor(srcMat, gray, cv.COLOR_RGBA2GRAY);
+    cv.cvtColor(roi, gray, cv.COLOR_RGBA2GRAY);
 
-    let blurred = new cv.Mat();
-    cv.GaussianBlur(gray, blurred, new cv.Size(5, 5), 0);
-
-    let thresholded = new cv.Mat();
-    cv.Canny(blurred, thresholded, 50, 150);
-
-    let contours = new cv.MatVector();
-    let hierarchy = new cv.Mat();
-    cv.findContours(thresholded, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
-
-    let cardContour = null;
-    let maxArea = 0;
-
-    // البحث عن أكبر مستطيل رباعي الأضلاع (البطاقة)
-    for (let i = 0; i < contours.size(); ++i) {
-        let cnt = contours.get(i);
-        let area = cv.contourArea(cnt);
-        if (area > 5000) { // حد أدنى للمساحة للتخلص من الضوضاء
-            let peri = cv.arcLength(cnt, true);
-            let approx = new cv.Mat();
-            cv.approxPolyDP(cnt, approx, 0.02 * peri, true);
-
-            if (approx.rows === 4 && area > maxArea) {
-                maxArea = area;
-                if (cardContour) cardContour.delete();
-                cardContour = approx;
-            } else {
-                approx.delete();
-            }
-        }
-    }
-
-    let outputMat = new cv.Mat();
-
-    // إذا تم العثور على أضلاع البطاقة الأربعة، يتم تعديل المنظور
-    if (cardContour) {
-        let pts = [];
-        for (let i = 0; i < 4; i++) {
-            pts.push({ x: cardContour.data32S[i * 2], y: cardContour.data32S[i * 2 + 1] });
-        }
-
-        // ترتيب النقاط: [أعلى يسار، أعلى يمين، أسفل يمين، أسفل يسار]
-        pts.sort((a, b) => a.y - b.y);
-        let topPts = pts.slice(0, 2).sort((a, b) => a.x - b.x);
-        let bottomPts = pts.slice(2, 4).sort((a, b) => a.x - b.x);
-
-        let srcTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
-            topPts[0].x, topPts[0].y,
-            topPts[1].x, topPts[1].y,
-            bottomPts[1].x, bottomPts[1].y,
-            bottomPts[0].x, bottomPts[0].y
-        ]);
-
-        // حجم أبعاد البطاقة المعيارية (نسبة 85.6mm × 54mm)
-        let cardWidth = 856;
-        let cardHeight = 540;
-        let dstTri = cv.matFromArray(4, 1, cv.CV_32FC2, [0, 0, cardWidth, 0, cardWidth, cardHeight, 0, cardHeight]);
-
-        let M = cv.getPerspectiveTransform(srcTri, dstTri);
-        cv.warpPerspective(srcMat, outputMat, M, new cv.Size(cardWidth, cardHeight));
-
-        srcTri.delete(); dstTri.delete(); M.delete();
-        cardContour.delete();
-    } else {
-        // في حال عدم كشف الحواف بدقة، يتم اقتطاع الجزء الأوسط بناءً على إطار التوجيه
-        let cropX = srcMat.cols * 0.1;
-        let cropY = srcMat.rows * 0.225;
-        let cropW = srcMat.cols * 0.8;
-        let cropH = srcMat.rows * 0.55;
-        let rect = new cv.Rect(cropX, cropY, cropW, cropH);
-        outputMat = srcMat.roi(rect);
-    }
-
-    gray.delete(); blurred.delete(); thresholded.delete(); contours.delete(); hierarchy.delete();
-    return outputMat;
-}
-
-// 3. إزالة التلميع والانعكاسات وحجم الخط بـ Adaptive Thresholding
-function preprocessForOcr(cardMat) {
-    let gray = new cv.Mat();
-    cv.cvtColor(cardMat, gray, cv.COLOR_RGBA2GRAY);
-
-    // تصفية التلميع وتحسين إبراز أرقام البطاقة
     let processed = new cv.Mat();
-    cv.adaptiveThreshold(gray, processed, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 15, 8);
+    // تكبير المنطقة قليلاً لتسهيل قراءة النص
+    cv.resize(gray, processed, new cv.Size(0, 0), 1.5, 1.5, cv.INTER_CUBIC);
+    cv.adaptiveThreshold(processed, processed, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 13, 6);
 
-    gray.delete();
+    roi.delete(); gray.delete();
     return processed;
 }
 
-// 4. تنفيذ التقاط الصورة ومعالجتها ثم التعرف الضوئي OCR
+// 4. التقاط ومعالجة الجزء المطلوب فقط
 async function captureAndScan() {
-    if (!isOpenCvReady) return;
-    
-    document.getElementById('status').innerText = "جاري قص البطاقة وتصفية التلميع...";
-    document.getElementById('result').innerText = "الرقم المستخرج: جاري القراءة...";
+    document.getElementById('status').innerText = "جاري القراءة بشكل سريع...";
+    document.getElementById('scanBtn').disabled = true;
 
     let video = document.getElementById('videoInput');
     let src = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
     let cap = new cv.VideoCapture(video);
     cap.read(src);
 
-    // أ) قص وتعديل المنظور
-    let croppedCardMat = extractAndTransformCard(src);
-    cv.imshow('cardCroppedCanvas', croppedCardMat);
+    // استخراج وعرض المنطقة المفصلة فقط
+    let roiMat = getCroppedRoi(src);
+    cv.imshow('roiCanvas', roiMat);
 
-    // ب) المعالجة وإزالة التلميع والانعكاسات
-    let processedCardMat = preprocessForOcr(croppedCardMat);
-    cv.imshow('cardProcessedCanvas', processedCardMat);
-
-    const canvasForOcr = document.getElementById('cardProcessedCanvas');
+    const canvasForOcr = document.getElementById('roiCanvas');
 
     try {
-        document.getElementById('status').innerText = "جاري التعرف على الرقم...";
-        
-        // ج) تشغيل Tesseract مع وضع Whitelist
-        const worker = await Tesseract.createWorker('eng');
-        await worker.setParameters({
-            tessedit_char_whitelist: 'JED0123456789-',
-            tessedit_pageseg_mode: Tesseract.PSM.SINGLE_BLOCK,
-        });
+        // قراءة الصورة المصغرة جداً (تستغرق جزء من الثانية)
+        const { data: { text } } = await tesseractWorker.recognize(canvasForOcr);
 
-        const { data: { text } } = await worker.recognize(canvasForOcr);
-        await worker.terminate();
-
-        // د) المطابقة بـ Regex لنمط JED-XXX-XXXX
+        // تنظيف النص وتطبيق الباترن JED-XXX-XXXX
+        const cleanedText = text.replace(/\s+/g, '');
         const regexPattern = /JED-\d{3}-\d{4}/gi;
-        const matched = text.match(regexPattern);
+        const matched = cleanedText.match(regexPattern);
 
         if (matched && matched.length > 0) {
             document.getElementById('result').innerText = `الرقم المستخرج: ${matched[0].toUpperCase()}`;
             document.getElementById('status').innerText = "تمت القراءة بنجاح!";
         } else {
-            document.getElementById('result').innerText = "تعذر العثور على الرقم بالنمط المطلوبة.";
-            document.getElementById('status').innerText = "يرجى المحاذاة مع إطار التوجيه والمحاولة مجدداً.";
+            document.getElementById('result').innerText = "لم يتم العثور على الرقم بالنمط الصحيح.";
+            document.getElementById('status').innerText = "تأكد من وجود الرقم داخل المربع الأخضر بشكل واضح.";
         }
     } catch (error) {
         console.error(error);
         document.getElementById('status').innerText = "حدث خطأ أثناء القراءة.";
     } finally {
-        src.delete(); croppedCardMat.delete(); processedCardMat.delete();
+        src.delete(); roiMat.delete();
+        document.getElementById('scanBtn').disabled = false;
     }
 }
 </script>
