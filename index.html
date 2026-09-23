@@ -2237,7 +2237,7 @@
       // static message that looks identical whether everything is working or silently stuck.
       let framesTried = 0;
       let firstErrorShown = false;
-      statusEl.innerText = '🔍 Camera ready — fill the box with the barcode and hold steady.';
+      statusEl.innerText = '🔍 Camera ready — find the distance where the barcode looks SHARP on your screen (move back if it looks blurry).';
 
       // A guide box tells the officer where to aim, and decoding ONLY that strip (rather than
       // the whole frame) keeps every attempt at a resolution the barcode can actually be read
@@ -2251,7 +2251,7 @@
       // 4.5x didn't — so committing to any single fixed scale is a coin flip. Sweeping several
       // scales per frame and stopping at the first hit is cheap (each attempt is a small crop)
       // and reliably lands on a working one.
-      const BARCODE_SCALES = [2, 2.5, 3, 3.5, 4, 4.5, 5, 6];
+      const BARCODE_SCALES = [2, 2.5, 3, 3.5, 4, 4.5, 5, 6, 7, 8, 10];
       const scanCanvas = document.createElement('canvas');
       barcodeScanBusy = false;
       barcodeScanTimer = setInterval(async () => {
@@ -2292,7 +2292,7 @@
             }
           }
           framesTried++;
-          statusEl.innerText = `🔍 Scanning... (${framesTried} tries, ${vw}×${vh} camera) — fill the box with just the barcode.`;
+          statusEl.innerText = `🔍 Scanning... (${framesTried} tries) — if it looks blurry, move the phone SLIGHTLY BACK until it's sharp, not closer.`;
         } catch (e) {
           // Surface the FIRST error only, so a persistent underlying problem (rather than one
           // noisy bad frame) is visible on screen instead of silently retrying forever.
