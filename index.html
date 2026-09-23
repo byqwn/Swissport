@@ -3,104 +3,234 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ماسح سريع وبسيط</title>
-    <!-- مكتبة Tesseract فقط -->
+    <title>ماسح بطاقات GACA المطور</title>
+    <!-- تحميل Tesseract.js و OpenCV.js -->
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <script async src="https://docs.opencv.org/4.x/opencv.js" onload="onOpenCvReady()"></script>
     <style>
-        body { font-family: sans-serif; text-align: center; background: #f8f9fa; padding: 20px; }
-        .container { max-width: 400px; margin: 0 auto; display: flex; flex-direction: column; gap: 15px; }
-        video { width: 100%; border-radius: 8px; border: 2px solid #333; }
-        button { padding: 14px; font-size: 1.1rem; background: #28a745; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; }
-        button:disabled { background: #ccc; }
-        #result { padding: 15px; font-size: 1.2rem; font-weight: bold; background: #e9ecef; border-radius: 8px; color: #212529; }
-        #status { font-size: 0.9rem; color: #6c757d; }
+        body { font-family: system-ui, sans-serif; text-align: center; background: #f0f2f5; margin: 0; padding: 20px; }
+        .container { display: flex; flex-direction: column; align-items: center; gap: 15px; max-width: 480px; margin: 0 auto; }
+        .video-wrapper { position: relative; width: 100%; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.15); background: #000; }
+        video { width: 100%; display: block; }
+        
+        /* إطار توجيهي على الشاشة */
+        .guide-box {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            width: 85%; height: 60%;
+            border: 2px dashed #ff9800;
+            border-radius: 8px;
+            box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
+            pointer-events: none;
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
+            padding-bottom: 20px;
+        }
+        .guide-text { color: #fff; background: rgba(0,0,0,0.7); padding: 5px 10px; border-radius: 4px; font-size: 0.8rem; }
+
+        button { background: #2196F3; color: white; border: none; padding: 12px 24px; font-size: 1rem; font-weight: bold; border-radius: 8px; cursor: pointer; }
+        button:disabled { background: #b0bec5; cursor: not-allowed; }
+        
+        #result { font-size: 1.3rem; font-weight: bold; color: #1b5e20; background: #e8f5e9; padding: 12px; border-radius: 8px; border: 1px solid #a5d6a7; width: 100%; box-sizing: border-box; min-height: 50px;}
+        #status { color: #555; font-size: 0.9rem; }
+        
+        /* معارض المعاينة لأغراض التصحيح (يمكن إخفاؤها لاحقاً) */
+        .preview-pane { display: flex; gap: 10px; margin-top: 10px; justify-content: center; }
+        .preview-pane canvas { border: 1px solid #ccc; max-width: 150px; background: white; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h2>ماسح البطاقات المباشر</h2>
-    <p id="status">جاري تشغيل الكاميرا...</p>
+    <h2>ماسح رقم بطاقة GACA</h2>
+    <p id="status">جاري تهيئة النظام...</p>
     
-    <video id="video" autoplay playsinline muted></video>
-    <canvas id="canvas" style="display:none;"></canvas>
+    <div class="video-wrapper">
+        <video id="videoInput" autoplay playsinline muted></video>
+        <div class="guide-box">
+            <span class="guide-text">ضع الباركود والنمط JED داخل الإطار</span>
+        </div>
+    </div>
     
-    <button id="scanBtn" onclick="scanNow()">التقاط وقراءة النص مباشرة</button>
+    <canvas id="canvasCrop" style="display:none;"></canvas>
+    <button id="scanBtn" onclick="captureAndScan()" disabled>التقاط وقراءة الرقم</button>
     
     <div id="result">النتيجة: ---</div>
+
+    <!-- معاينة المنطقة التي تم قصها وتحسينها -->
+    <div class="preview-pane">
+        <div>
+            <div style="font-size:0.7rem">المنطقة المستهدفة (ROI)</div>
+            <canvas id="roiCanvas"></canvas>
+        </div>
+        <div>
+            <div style="font-size:0.7rem">بعد المعالجة (OCR)</div>
+            <canvas id="processedCanvas"></canvas>
+        </div>
+    </div>
 </div>
 
 <script>
-const video = document.getElementById('video');
-const canvas = document.getElementById('canvas');
-const statusText = document.getElementById('status');
+let isOpenCvReady = false;
+const video = document.getElementById('videoInput');
 const resultText = document.getElementById('result');
+const statusText = document.getElementById('status');
 const scanBtn = document.getElementById('scanBtn');
 
-// 1. تشغيل الكاميرا فور فتح الصفحة
-async function initCamera() {
+// 1. تهيئة الكاميرا و OpenCV
+function onOpenCvReady() {
+    isOpenCvReady = true;
+    checkReadyStatus();
+}
+
+async function startCamera() {
     try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } }
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+            video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } } 
         });
         video.srcObject = stream;
-        statusText.innerText = "الكاميرا جاهزة. وجّه الكاميرا نحو البطاقة واضغط قراءة.";
+        checkReadyStatus();
     } catch (err) {
-        statusText.innerText = "خطأ في فتح الكاميرا: " + err.message;
+        statusText.innerText = "خطأ في الكاميرا: " + err.message;
     }
 }
 
-// 2. التقاط الصورة الحالية وقراءتها مباشرة بدون أي معالجة
-async function scanNow() {
-    scanBtn.disabled = true;
-    statusText.innerText = "جاري التقاط الصورة وقراءة النص...";
-    resultText.innerText = "النتيجة: جاري المعالجة...";
-
-    // رسم الإطار الحالي على الكانفاس
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-    try {
-        // تشغيل Tesseract مباشرة على الكانفاس
-        const result = await Tesseract.recognize(canvas, 'eng', {
-            logger: m => {
-                if(m.status === 'recognizing text') {
-                    statusText.innerText = `جاري القراءة... (${Math.round(m.progress * 100)}%)`;
-                }
-            }
-        });
-
-        const rawText = result.data.text;
-        console.log("النصر المقروء الكامل:", rawText);
-
-        // البحث عن النمط JED-XXX-XXXX
-        // قبول مسافات أو أخطاء بسيطة مثل JED-123-4567
-        const regex = /JED\s*[-–—]?\s*\d{3}\s*[-–—]?\s*\d{4}/gi;
-        const match = rawText.match(regex);
-
-        if (match && match.length > 0) {
-            // تنسيق النتيجة بالشكل الصحيح
-            let cleanNumber = match[0].replace(/\s+/g, '').toUpperCase();
-            if(!cleanNumber.includes('-')) {
-                cleanNumber = cleanNumber.replace(/JED(\d{3})(\d{4})/, "JED-$1-$2");
-            }
-            resultText.innerText = "الرقم المستخرج: " + cleanNumber;
-            statusText.innerText = "تمت القراءة بنجاح!";
-        } else {
-            resultText.innerText = "لم يتم العثور على الرقم بالنمط المطلوبة.";
-            statusText.innerText = "تأكد من إضاءة الغرفة ووضوح الرقم أمام الكاميرا.";
-        }
-    } catch (err) {
-        console.error(err);
-        statusText.innerText = "حدث خطأ أثناء القراءة: " + err.message;
-    } finally {
+function checkReadyStatus() {
+    if (isOpenCvReady && video.srcObject) {
+        statusText.innerText = "النظام جاهز. وجه الكاميرا واضغط التقاط.";
         scanBtn.disabled = false;
     }
 }
 
-initCamera();
+startCamera();
+
+// 2. معالجة الصورة المتقدمة: البحث عن الباركود وقص الرقم فوقه
+function processAndCropNumber(src) {
+    // تحديد مساحة النصف السفلي من الصورة (حيث يوجد الباركود والرقم)
+    let yStart = Math.floor(src.rows * 0.5);
+    let rectBottom = new cv.Rect(0, yStart, src.cols, src.rows - yStart);
+    let bottomMat = src.roi(rectBottom);
+
+    // تحويل للرمادي
+    let gray = new cv.Mat();
+    cv.cvtColor(bottomMat, gray, cv.COLOR_RGBA2GRAY);
+
+    // تحديد الباركود (البحث عن المستطيلات السوداء الكبيرة)
+    let thresh = new cv.Mat();
+    cv.threshold(gray, thresh, 50, 255, cv.THRESH_BINARY_INV); // عكس الألوان (الأسود يصبح أبيض)
+
+    let contours = new cv.MatVector();
+    let hierarchy = new cv.Mat();
+    cv.findContours(thresh, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+    let barcodeRect = null;
+    let maxArea = 0;
+
+    // البحث عن أكبر مستطيل (غالباً هو الباركود)
+    for (let i = 0; i < contours.size(); ++i) {
+        let cnt = contours.get(i);
+        let area = cv.contourArea(cnt);
+        let rect = cv.boundingRect(cnt);
+        // الباركود شريطي، عرضه أكبر بكثير من ارتفاعه
+        if (area > 5000 && rect.width > rect.height * 2) {
+            if (area > maxArea) {
+                maxArea = area;
+                barcodeRect = rect;
+            }
+        }
+    }
+
+    let resultMat = null;
+
+    if (barcodeRect) {
+        // إذا وجدنا الباركود، الرقم فوقه مباشرة.
+        // نقوم باقتطاع مساحة تبدأ فوق الباركود بمسافة بسيطة وتغطي النص.
+        let numX = barcodeRect.x;
+        let numY = Math.max(0, barcodeRect.y - 60); // الارتفاع فوق الباركود (حوالي 60 بكسل)
+        let numW = barcodeRect.width;
+        let numH = 60; // ارتفاع منطقة النص
+
+        let numRect = new cv.Rect(numX, numY, numW, numH);
+        let numMat = bottomMat.roi(numRect);
+
+        // تحسين منطقة النص للقراءة (أبيض وأسود نقي لإزالة التلميع)
+        resultMat = new cv.Mat();
+        cv.resize(numMat, resultMat, new cv.Size(0, 0), 2, 2, cv.INTER_CUBIC); // تكبير النص
+        cv.cvtColor(resultMat, resultMat, cv.COLOR_RGBA2GRAY);
+        cv.adaptiveThreshold(resultMat, resultMat, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 15, 7);
+
+        // عرض للمعاينة
+        cv.imshow('roiCanvas', numMat);
+        numMat.delete();
+    }
+
+    // تنظيف الذاكرة
+    bottomMat.delete(); gray.delete(); thresh.delete(); contours.delete(); hierarchy.delete();
+
+    return resultMat; // نعود بالصورة المعالجة للنص، أو null إذا لم نجد الباركود
+}
+
+// 3. التقاط واستخراج الرقم
+async function captureAndScan() {
+    statusText.innerText = "جاري التقاط ومعالجة الصورة...";
+    scanBtn.disabled = true;
+    resultText.innerText = "النتيجة: جاري القراءة...";
+
+    let src = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
+    let cap = new cv.VideoCapture(video);
+    cap.read(src);
+
+    // أ) تطبيق خوارزمية البحث عن الرقم وقصه
+    let processedNumMat = processAndCropNumber(src);
+
+    if (!processedNumMat) {
+        resultText.innerText = "لم يتم العثور على الباركود/الرقم.";
+        statusText.innerText = "تأكد من وضوح النصف السفلي من البطاقة.";
+        src.delete();
+        scanBtn.disabled = false;
+        return;
+    }
+
+    // ب) عرض الصورة المعالجة نهائياً قبل إرسالها للـ OCR
+    cv.imshow('processedCanvas', processedNumMat);
+    const canvasForOcr = document.getElementById('processedCanvas');
+
+    try {
+        statusText.innerText = "جاري استخراج النص من المنطقة المقصوصة...";
+        
+        // ج) تشغيل Tesseract مع وضع Single Line وقائمة Whitelist للسرعة
+        const worker = await Tesseract.createWorker('eng');
+        await worker.setParameters({
+            tessedit_char_whitelist: 'JED0123456789-',
+            tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE, 
+        });
+
+        const { data: { text } } = await worker.recognize(canvasForOcr);
+        await worker.terminate();
+
+        // د) تنظيف ومطابقة البترن JED-XXX-XXXX
+        const cleanedText = text.replace(/\s+/g, '').toUpperCase();
+        const regexPattern = /JED-\d{3}-\d{4}/g;
+        const matched = cleanedText.match(regexPattern);
+
+        if (matched && matched.length > 0) {
+            resultText.innerText = "الرقم المستخرج: " + matched[0];
+            statusText.innerText = "تمت القراءة بنجاح!";
+        } else {
+            resultText.innerText = "تعذر قراءة النمط JED من المنطقة المقصوصة.";
+            statusText.innerText = "حاول مرة أخرى مع إضاءة أفضل وبدون تلميع مباشر.";
+        }
+    } catch (error) {
+        console.error(error);
+        statusText.innerText = "حدث خطأ أثناء معالجة OCR.";
+    } finally {
+        src.delete();
+        processedNumMat.delete();
+        scanBtn.disabled = false;
+    }
+}
 </script>
 
 </body>
