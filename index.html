@@ -3,10 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ماسح البطاقات المطور (أسفل اليمين)</title>
+    <title>ماسح البطاقات المطور (GACA-ROI)</title>
     
-    <!-- تحميل Tesseract.js (محلياً بالكامل) -->
+    <!-- تحميل Tesseract.js و OpenCV.js (محلياً بالكامل للخصوصية والسرعة) -->
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <script async src="https://docs.opencv.org/4.x/opencv.js" onload="onOpenCvReady()"></script>
     
     <style>
         body { font-family: system-ui, sans-serif; text-align: center; background: #f0f2f5; margin: 0; padding: 20px; }
@@ -14,7 +15,7 @@
         .video-wrapper { position: relative; width: 100%; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.15); background: #000; }
         video { width: 100%; display: block; }
         
-        /* إطار توجيه برتقالي للخصوصية والمحاذاة */
+        /* إطار توجيه برتقالي للمحاذاة والتركيز على منطقة النص والباركود */
         .guide-box {
             position: absolute;
             top: 50%; left: 50%;
@@ -26,79 +27,66 @@
             pointer-events: none;
             display: flex;
             align-items: flex-end;
-            justify-content: flex-end;
-            padding: 10px;
-        }
-        
-        /* مؤشر صغير يوضح منطقة البحث المستهدفة (أسفل اليمين) */
-        .target-area-indicator {
-            width: 40%;
-            height: 25%;
-            border: 2px solid #00ff00; /* أخضر ساطع */
-            border-radius: 4px;
-            display: flex;
-            align-items: center;
             justify-content: center;
-            background: rgba(0, 255, 0, 0.1);
+            padding-bottom: 20px;
         }
-        .target-text { color: #00ff00; font-size: 0.7rem; font-weight: bold; }
+        .guide-text { color: #fff; background: rgba(0,0,0,0.7); padding: 5px 10px; border-radius: 4px; font-size: 0.8rem; }
 
-        button { background: #007bff; color: white; border: none; padding: 14px 24px; font-size: 1.1rem; font-weight: bold; border-radius: 8px; cursor: pointer; transition: 0.2s; width: 100%; }
+        button { background: #28a745; color: white; border: none; padding: 12px 24px; font-size: 1rem; font-weight: bold; border-radius: 8px; cursor: pointer; transition: 0.2s; }
         button:disabled { background: #b0bec5; cursor: not-allowed; }
         
         #result { font-size: 1.3rem; font-weight: bold; color: #1b5e20; background: #e8f5e9; padding: 12px; border-radius: 8px; border: 1px solid #a5d6a7; width: 100%; box-sizing: border-box; min-height: 50px;}
         #status { color: #555; font-size: 0.9rem; }
-        
-        /* منطقة معاينة خفية (أو ظاهرة للتصحيح) للمنطقة التي تم قصها */
-        #debugCanvas { border: 1px solid #ccc; max-width: 100%; margin-top: 10px; display: none; }
+    }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h2>ماسح رقم البطاقة (أسفل اليمين)</h2>
+    <h2>ماسح رقم بطاقة التعريف (المحلي)</h2>
     <p id="status">جاري تهيئة النظام محلياً...</p>
     
     <div class="video-wrapper">
         <video id="videoInput" autoplay playsinline muted></video>
         <div class="guide-box">
-            <!-- منطقة البحث المستهدفة (أسفل اليمين) -->
-            <div class="target-area-indicator">
-                <span class="target-text">ضع الرقم هنا</span>
-            </div>
+            <span class="guide-text">وجه البطاقة داخل الإطار البرتقالي واضغط التقاط</span>
         </div>
     </div>
     
-    <button id="scanBtn" onclick="captureAndScan()" disabled>التقاط وقراءة الرقم</button>
+    <button id="scanBtn" onclick="captureAndScan()" disabled>التقاط وقراءة الرقم (محلي)</button>
     
     <div id="result">النتيجة: ---</div>
     
     <!-- كانفاس خفي لمعالجة الصورة قبل القراءة -->
     <canvas id="canvas" style="display:none;"></canvas>
-    <!-- كانفاس لمعاينة المنطقة المقصوصة والمحسنة (للتصحيح) -->
-    <canvas id="debugCanvas"></canvas>
 </div>
 
 <script>
+    let isOpenCvReady = false;
     let tesseractWorker = null;
     let extractedNumber = null;
     
     const video = document.getElementById('videoInput');
     const canvas = document.getElementById('canvas');
-    const debugCanvas = document.getElementById('debugCanvas');
     const resultText = document.getElementById('result');
     const statusText = document.getElementById('status');
     const scanBtn = document.getElementById('scanBtn');
 
-    // 1. تهيئة الكاميرا و Tesseract مسبقاً
+    // 1. تهيئة الكاميرا و OpenCV و Tesseract مسبقاً (حبه حبه)
+    function onOpenCvReady() {
+        isOpenCvReady = true;
+        checkReadyStatus();
+    }
+
     async function initApp() {
         try {
+            // تشغيل الكاميرا
             const stream = await navigator.mediaDevices.getUserMedia({ 
                 video: { facingMode: "environment", width: { ideal: 1280 } } 
             });
             video.srcObject = stream;
             
-            // تهيئة Tesseract محلياً مع Whitelist وقراءة Single Line للسرعة
+            // تهيئة Tesseract محلياً مع وضع Whitelist وقراءة Single Line للسرعة والدقة
             statusText.innerText = "جاري تهيئة Tesseract محلياً...";
             tesseractWorker = await Tesseract.createWorker('eng');
             await tesseractWorker.setParameters({
@@ -106,46 +94,70 @@
                 tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE, 
             });
             
-            statusText.innerText = "جاهز! ضع الرقم (أسفل اليمين) في المربع الأخضر واضغط التقاط.";
-            scanBtn.disabled = false;
+            statusText.innerText = "جاري تحميل OpenCV...";
+            initCamera();
         } catch (err) {
             statusText.innerText = "خطأ في التهيئة: " + err.message;
         }
     }
 
-    // 2. تصفية التلميع وتحسين النص في المنطقة المقصوصة
-    function preprocessImageForOcr(ctx, canvas, roiX, roiY, roiW, roiH) {
-        // اقتطاع منطقة النص
-        const imageData = ctx.getImageData(roiX, roiY, roiW, roiH);
-        const data = imageData.data;
+    function checkReadyStatus() {
+        if (isOpenCvReady && tesseractWorker && video.srcObject) {
+            statusText.innerText = "النظام المحلي جاهز! وجه البطاقة واضغط التقاط.";
+            scanBtn.disabled = false;
+        }
+    }
 
-        // تطبيق فلتر أبيض وأسود قوي مع Adaptive Thresholding بسيط لإزالة التلميع
-        for (let i = 0; i < data.length; i += 4) {
-            const gray = (0.3 * data[i]) + (0.59 * data[i + 1]) + (0.11 * data[i + 2]);
-            // عتبة متكيفة بسيطة لإزالة التلميع (Glare Filtering)
-            // القيم الأقل من 140 ستصبح سوداء، والأعلى ستصبح بيضاء نقيّة.
-            if (gray > 140) {
-                data[i] = data[i + 1] = data[i + 2] = 255; // أبيض
-            } else {
-                data[i] = data[i + 1] = data[i + 2] = 0; // أسود
+    initApp();
+
+    // 2. معالجة OpenCV المحلية: البحث عن الرقم وتنظيف التلميع
+    function preprocessImageForOcr(src) {
+        // تحويل للرمادي
+        let gray = new cv.Mat();
+        cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+
+        // تصفية التلميع باستخدام Adaptive Thresholding (البيض والأسود النقي)
+        let thresh = new cv.Mat();
+        cv.adaptiveThreshold(gray, thresh, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 11, 2);
+
+        // البحث عن منطقة النص فوق الباركود
+        let contours = new cv.MatVector();
+        let hierarchy = new cv.Mat();
+        cv.findContours(thresh, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+        let roiMat = null;
+        let textRect = null;
+
+        // البحث عن المستطيل الأفقي الذي يحتوي على النص JED-XXX-XXXX
+        for (let i = 0; i < contours.size(); ++i) {
+            let cnt = contours.get(i);
+            let rect = cv.boundingRect(cnt);
+            let area = cv.contourArea(cnt);
+            // المعايير: مساحة متوسطة، عرض أكبر من الارتفاع (أفقي)
+            if (area > 1000 && rect.width > rect.height * 1.5) {
+                // نقتطع هذه المنطقة لتحليلها
+                textRect = rect;
+                break; 
             }
         }
-        
-        // رسم المنطقة المقصوصة والمحسنة من جديد على كانفاس المعاينة (debugCanvas)
-        debugCanvas.width = roiW;
-        debugCanvas.height = roiH;
-        debugCanvas.getContext('2d').putImageData(imageData, 0, 0);
-        
-        // يمكن إظهار debugCanvas للتأكد من أن المنطقة المقصوصة واضحة.
-        // debugCanvas.style.display = 'block'; 
 
-        return debugCanvas; // نعود بالكانفاس المحسن جاهزاً للـ OCR
+        if (textRect) {
+            // اقتطاع منطقة النص (Region of Interest)
+            roiMat = thresh.roi(textRect);
+            // تكبير الصورة قليلاً لتحسين القراءة
+            cv.resize(roiMat, roiMat, new cv.Size(0, 0), 1.5, 1.5, cv.INTER_CUBIC);
+        }
+
+        // تنظيف الذاكرة
+        gray.delete(); thresh.delete(); contours.delete(); hierarchy.delete();
+
+        return roiMat; // نعود بالصورة المعالجة للنص، أو null إذا لم نجدها
     }
 
     // 3. التقاط ومعالجة الصورة محلياً
     async function captureAndScan() {
         statusText.innerText = "جاري التقاط ومعالجة الصورة محلياً...";
-        resultText.innerText = "النتيجة: جاري المعالجة...";
+        resultText.innerText = "النتيجة: جاري المعالجة محلياً...";
         scanBtn.disabled = true;
 
         canvas.width = video.videoWidth;
@@ -153,27 +165,34 @@
         const ctx = canvas.getContext('2d');
         ctx.drawImage(video, 0, 0);
 
-        // أ) تحديد مساحة البحث المستهدفة (أسفل اليمين)
-        // بناءً على ملاحظتك، الرقم والباركود موجودان في الزاوية السفلية اليمنى.
-        const roiW = Math.floor(video.videoWidth * 0.45); // العرض: 45% من عرض الكاميرا
-        const roiH = Math.floor(video.videoHeight * 0.20); // الارتفاع: 20% من ارتفاع الكاميرا
-        const roiX = video.videoWidth - roiW - (video.videoWidth * 0.05); // الإزاحة من اليمين
-        const roiY = video.videoHeight - roiH - (video.videoHeight * 0.05); // الإزاحة من الأسفل
+        let src = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
+        let cap = new cv.VideoCapture(video);
+        cap.read(src);
 
-        // ب) تطبيق الخوارزمية المحلية المخصصة (تصفية التلميع وتحسين النص)
-        const processedCanvas = preprocessImageForOcr(ctx, canvas, roiX, roiY, roiW, roiH);
+        // أ) تطبيق خوارزمية OpenCV المحلية المخصصة (تصفية التلميع)
+        let processedRoiMat = preprocessImageForOcr(src);
+
+        if (!processedRoiMat) {
+            resultText.innerText = "تعذر تحديد منطقة النص محلياً.";
+            statusText.innerText = "تأكد من إضاءة الغرفة ووضوح البطاقة.";
+            src.delete();
+            scanBtn.disabled = false;
+            return;
+        }
+
+        // ب) رسم الصورة المعالجة نهائياً على الكانفاس للقراءة
+        cv.imshow('canvas', processedRoiMat);
 
         try {
             statusText.innerText = "جاري التعرف على النص محلياً...";
             
-            // ج) قراءة المنطقة المقصوصة والمحسنة فقط
-            const { data: { text } } = await tesseractWorker.recognize(processedCanvas);
+            // ج) قراءة النص المعالج محلياً
+            const { data: { text } } = await tesseractWorker.recognize(canvas);
             console.log("النص المقروء محلياً:", text);
 
-            // د) تطبيق الخوارزمية المعتمدة: "ابحث عن JED ومنها يبدأ"
-            const cleanedText = text.replace(/\s+/g, '').toUpperCase();
-            const regexPattern = /JED-\d{3}-\d{4}/g;
-            const matched = cleanedText.match(regexPattern);
+            // د) تطبيق خوارزمية الخيار الفصل: "ابحث عن JED ومنها يبدأ"
+            const regexPattern = /JED-\d{3}-\d{4}/gi;
+            const matched = text.match(regexPattern);
 
             if (matched && matched.length > 0) {
                 extractedNumber = matched[0];
@@ -181,17 +200,17 @@
                 statusText.innerText = "تمت القراءة بنجاح محلياً!";
             } else {
                 resultText.innerText = "تعذر قراءة النمط JED من المنطقة المقصوصة.";
-                statusText.innerText = "تأكد من وضع الرقم (أسفل اليمين) في المربع الأخضر ووضوح الإضاءة.";
+                statusText.innerText = "تأكد من وضوح الرقم أمام الكاميرا.";
             }
         } catch (error) {
             console.error(error);
             statusText.innerText = "حدث خطأ أثناء معالجة OCR المحلي.";
         } finally {
+            src.delete();
+            processedRoiMat.delete();
             scanBtn.disabled = false;
         }
     }
-
-    initApp();
 </script>
 
 </body>
