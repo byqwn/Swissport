@@ -478,33 +478,7 @@
     .badge-candidate-chip:hover { border-color: #94a3b8; }
     .badge-candidate-chip.selected { background: var(--primary); border-color: var(--primary); color: #fff; }
 
-    /* Live Barcode Scanner */
-    .barcode-video-wrap {
-      position: relative; width: 100%; aspect-ratio: 4 / 3; background: #000;
-      border-radius: 10px; overflow: hidden; margin-bottom: 12px;
-    }
-    .barcode-video-wrap video { width: 100%; height: 100%; object-fit: cover; display: block; }
-    /* Built from four plain rectangles instead of one huge box-shadow spread — several mobile
-       browsers (notably iOS Safari) fail to clip a very large box-shadow to a rounded,
-       overflow:hidden ancestor, letting the "dark everywhere except the box" effect bleed out
-       and black out the status text below the camera. Confirmed against a real iPhone: the
-       shadow-based version made the scan status unreadable; plain rectangles clipped by
-       .barcode-video-wrap's own overflow:hidden can't have that problem. */
-    .barcode-guide-curtain {
-      position: absolute; background: rgba(0, 0, 0, 0.4); pointer-events: none;
-    }
-    .barcode-guide-curtain.top { top: 0; left: 0; right: 0; height: 25%; }
-    .barcode-guide-curtain.bottom { bottom: 0; left: 0; right: 0; height: 25%; }
-    .barcode-guide-curtain.left { top: 25%; bottom: 25%; left: 0; width: 5%; }
-    .barcode-guide-curtain.right { top: 25%; bottom: 25%; right: 0; width: 5%; }
-    .barcode-guide-box {
-      position: absolute; left: 5%; right: 5%; top: 25%; bottom: 25%;
-      border: 3px solid #22c55e; border-radius: 6px;
-      pointer-events: none;
-    }
-    .barcode-scan-status {
-      font-size: 12.5px; font-weight: 700; color: #334155; text-align: center; min-height: 18px; margin-bottom: 8px;
-    }
+    /* Barcode Scanner */
     .barcode-match-name {
       font-size: 22px; font-weight: 800; color: #0f172a; text-align: center; margin: 6px 0 4px 0;
     }
@@ -644,28 +618,6 @@
         <button class="m-btn m-btn-save" onclick="confirmBadgeScan()">✓ Confirm & Log</button>
         <button class="m-btn m-btn-clear" onclick="retryBadgeScan()">🔄 Rescan</button>
         <button class="m-btn m-btn-cancel" onclick="cancelBadgeScan()">Cancel</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Live Barcode Scanner — a static whole-card photo under-resolves the barcode itself
-       (tested against real badges: reliably under ~20% decode success), so this points the
-       live camera feed at just the barcode and keeps trying frames until one decodes, the same
-       way any handheld barcode scanner works. -->
-  <div id="barcodeScannerModal" class="modal-overlay">
-    <div class="modal-content">
-      <h3>▮▮▮ Scan Badge Barcode</h3>
-      <div class="barcode-video-wrap">
-        <video id="barcodeVideo" playsinline muted></video>
-        <div class="barcode-guide-curtain top"></div>
-        <div class="barcode-guide-curtain bottom"></div>
-        <div class="barcode-guide-curtain left"></div>
-        <div class="barcode-guide-curtain right"></div>
-        <div class="barcode-guide-box"></div>
-      </div>
-      <div class="barcode-scan-status" id="barcodeScanStatus">Point the camera at the barcode strip on the badge.</div>
-      <div class="modal-actions">
-        <button class="m-btn m-btn-cancel" style="flex:1;" onclick="closeBarcodeScanner()">Cancel</button>
       </div>
     </div>
   </div>
@@ -991,9 +943,9 @@
       setInterval(updateActiveStaffChips, 1000);
 
       // Start downloading the OCR engine now, in the background, while the officer is still
-      // filling in station/flight — so it's already warm by the time they reach Scan ID Badge.
+      // filling in station/flight — so it's already warm by the time they reach Scan ID Badge
+      // or Scan Barcode (both now share this one worker).
       badgeWarmUpOCR();
-      barcodeWarmUp();
 
       setTimeout(() => {
         if (window.syncCloudFlightKeys) window.syncCloudFlightKeys();
@@ -1173,7 +1125,8 @@
         <button class="btn-row-action add-row-btn" onclick="addRow('cabin')">+ Add Personnel Row</button>
         <label class="btn-row-action scan-btn" id="scan-label-cabin" for="scanFileInput-cabin" style="cursor:pointer;">📷 Scan ID Badge</label>
         <input type="file" id="scanFileInput-cabin" accept="image/*" capture="environment" style="display:none;" onchange="processSmartBadge(this, 'cabin')">
-        <button type="button" class="btn-row-action barcode-btn" id="barcode-label-cabin" onclick="openBarcodeScanner('cabin')">▮▮▮ Scan Barcode</button>
+        <label class="btn-row-action barcode-btn" id="barcode-label-cabin" for="scanBarcodeInput-cabin" style="cursor:pointer;">▮▮▮ Scan Barcode</label>
+        <input type="file" id="scanBarcodeInput-cabin" accept="image/*" capture="environment" style="display:none;" onchange="processBarcodePhoto(this, 'cabin')">
       </div>
       <div class="sec-title" style="margin-top:8px;">Sign-Off Section</div>
       <table class="data-table sign-off-table">
@@ -1237,7 +1190,8 @@
         <button class="btn-row-action add-row-btn" onclick="addRow('hold')">+ Add Personnel Row</button>
         <label class="btn-row-action scan-btn" id="scan-label-hold" for="scanFileInput-hold" style="cursor:pointer;">📷 Scan ID Badge</label>
         <input type="file" id="scanFileInput-hold" accept="image/*" capture="environment" style="display:none;" onchange="processSmartBadge(this, 'hold')">
-        <button type="button" class="btn-row-action barcode-btn" id="barcode-label-hold" onclick="openBarcodeScanner('hold')">▮▮▮ Scan Barcode</button>
+        <label class="btn-row-action barcode-btn" id="barcode-label-hold" for="scanBarcodeInput-hold" style="cursor:pointer;">▮▮▮ Scan Barcode</label>
+        <input type="file" id="scanBarcodeInput-hold" accept="image/*" capture="environment" style="display:none;" onchange="processBarcodePhoto(this, 'hold')">
       </div>
       <div class="sec-title" style="margin-top:8px;">Sign-Off Section</div>
       <table class="data-table sign-off-table">
@@ -2163,159 +2117,417 @@
       } catch (e) { /* storage full/unavailable — this scan still logs the entry, it just won't be remembered for next time */ }
     }
 
-    // zxing-wasm ships its actual .wasm binary as a sibling of a DIFFERENT build path than the
-    // ES module we import (dist/reader/ vs dist/es/reader/) — its default same-directory guess
-    // 404s, so the module location has to be pointed at the real file explicitly.
-    let zxingReadBarcodesPromise = null;
-    function getZxingReadBarcodes() {
-      if (!zxingReadBarcodesPromise) {
-        zxingReadBarcodesPromise = import('https://cdn.jsdelivr.net/npm/zxing-wasm@3.1.4/dist/es/reader/index.js').then(mod => {
-          mod.setZXingModuleOverrides({
-            locateFile: (path) => 'https://cdn.jsdelivr.net/npm/zxing-wasm@3.1.4/dist/reader/' + path
-          });
-          return mod.readBarcodes;
-        }).catch(err => {
-          zxingReadBarcodesPromise = null;
-          throw err;
-        });
-      }
-      return zxingReadBarcodesPromise;
+    // A live camera feed was tried first here and dropped after real-device testing: it fights
+    // the phone's own autofocus (getting close enough to make the barcode readable pushed past
+    // the lens's minimum focus distance on the test phone, so the image stayed blurry no matter
+    // how far the officer backed away or how long they held still). A single photo taken through
+    // the phone's OWN camera app — the same capture path "Scan ID Badge" already uses — gets the
+    // phone's full autofocus/tap-to-focus and full sensor resolution instead of a capped video
+    // stream, so it starts from a much sharper source image.
+    //
+    // Actually decoding the barcode's BARS from that photo was tried next and dropped too: it's
+    // exactly as scale-sensitive as this file's earlier attempts kept finding, needing a from-
+    // scratch Lanczos resize and precise sub-pixel cropping just to succeed on 3 of 10 real test
+    // photos. But the barcode's own decoded value is always printed as plain text right next to
+    // it (confirmed by actually decoding real badges and comparing) — ordinary high-contrast
+    // printed characters, not a fine bar pattern needing exact alignment. Reading THAT text with
+    // the same OCR engine already used for names (proven at 8/10 on real badges) sidesteps the
+    // whole bar-decoding problem entirely.
+    function extractPixels(img, cx0, cy0, cw, ch, destW, destH) {
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(destW || cw));
+      canvas.height = Math.max(1, Math.round(destH || ch));
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, cx0, cy0, cw, ch, 0, 0, canvas.width, canvas.height);
+      return { data: ctx.getImageData(0, 0, canvas.width, canvas.height).data, w: canvas.width, h: canvas.height };
     }
 
-    function barcodeWarmUp() {
-      getZxingReadBarcodes().catch(() => {}); // fire-and-forget; real errors surface at scan time
+    // Grayscale + linear contrast stretch, scoped to just the small ID-text crop (not the whole
+    // photo — a whole-photo version of this was tried earlier for the name-OCR pass and made
+    // things worse, because a large dark background around a well-lit card skews the measurement;
+    // a crop this small is much more likely to be one evenly-lit surface). Stretches whatever
+    // range of brightness IS present back out to the full 0-255 span, which helps a washed-out
+    // (glare) or dim capture without needing to guess at a fixed brightness target.
+    function badgeGrayscaleAutoContrast(canvas) {
+      const ctx = canvas.getContext('2d');
+      const w = canvas.width, h = canvas.height;
+      const frame = ctx.getImageData(0, 0, w, h);
+      const px = frame.data;
+      let min = 255, max = 0;
+      const gray = new Float64Array(w * h);
+      for (let i = 0, p = 0; p < px.length; p += 4, i++) {
+        const g = px[p] * 0.299 + px[p + 1] * 0.587 + px[p + 2] * 0.114;
+        gray[i] = g;
+        if (g < min) min = g;
+        if (g > max) max = g;
+      }
+      const range = Math.max(1, max - min);
+      for (let i = 0, p = 0; p < px.length; p += 4, i++) {
+        const v = Math.max(0, Math.min(255, Math.round((gray[i] - min) / range * 255)));
+        px[p] = px[p + 1] = px[p + 2] = v;
+      }
+      ctx.putImageData(frame, 0, 0);
+      return canvas;
     }
 
-    let barcodeStream = null;
-    let barcodeScanTimer = null;
-    let barcodeScanBusy = false;
-    let barcodeScanSectionType = null;
-
-    async function openBarcodeScanner(sectionType) {
-      barcodeScanSectionType = sectionType;
-      const modal = document.getElementById('barcodeScannerModal');
-      const video = document.getElementById('barcodeVideo');
-      const statusEl = document.getElementById('barcodeScanStatus');
-      statusEl.innerText = 'Point the camera at the barcode strip on the badge.';
-      document.body.classList.add('modal-open');
-      modal.style.display = 'flex';
-
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        statusEl.innerText = '⚠️ This browser does not support camera access here (try Chrome/Safari, and make sure the page is opened over https://).';
-        return;
-      }
-
-      try {
-        barcodeStream = await navigator.mediaDevices.getUserMedia({
-          // focusMode is ignored (not an error) on browsers that don't support it, but on
-          // ones that do (mainly Android Chrome) it keeps the camera refocusing continuously
-          // instead of locking focus once at open — important here since the officer needs
-          // to move the phone in to find the distance where the barcode is both in focus and
-          // large enough to read.
-          video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 960 }, advanced: [{ focusMode: 'continuous' }] },
-          audio: false
-        });
-      } catch (err) {
-        statusEl.innerText = `⚠️ Could not access the camera (${err.name || err.message || err}) — check camera permission for this site and try again.`;
-        return;
-      }
-
-      video.srcObject = barcodeStream;
-      try { await video.play(); } catch (e) {}
-
-      let readBarcodes;
-      try {
-        readBarcodes = await getZxingReadBarcodes();
-      } catch (err) {
-        statusEl.innerText = `⚠️ Barcode engine could not load (${err && err.message ? err.message : err}) — check your connection and try again.`;
-        closeBarcodeScanner();
-        return;
-      }
-
-      // Visible, live feedback while scanning: the officer (and anyone troubleshooting with
-      // them) can see the loop is actually running and how far it's gotten, instead of a
-      // static message that looks identical whether everything is working or silently stuck.
-      let framesTried = 0;
-      let firstErrorShown = false;
-      statusEl.innerText = '🔍 Camera ready — find the distance where the barcode looks SHARP on your screen (move back if it looks blurry).';
-
-      // A guide box tells the officer where to aim, and decoding ONLY that strip (rather than
-      // the whole frame) keeps every attempt at a resolution the barcode can actually be read
-      // at — matches .barcode-guide-box in the CSS above.
-      //
-      // Decoding that crop at native camera resolution consistently failed in testing against
-      // a real badge barcode: a 1D barcode's bars are only a couple of pixels wide at normal
-      // camera distance, too narrow to read reliably. Upscaling fixes that, but which exact
-      // scale factor works turns out to be surprisingly narrow and inconsistent — verified
-      // against the same real barcode that scale 2.5x decoded it, 3x didn't, 3.5x did, 4x did,
-      // 4.5x didn't — so committing to any single fixed scale is a coin flip. Sweeping several
-      // scales per frame and stopping at the first hit is cheap (each attempt is a small crop)
-      // and reliably lands on a working one.
-      const BARCODE_SCALES = [2, 2.5, 3, 3.5, 4, 4.5, 5, 6, 7, 8, 10];
-      const scanCanvas = document.createElement('canvas');
-      barcodeScanBusy = false;
-      barcodeScanTimer = setInterval(async () => {
-        if (barcodeScanBusy || !barcodeStream || video.readyState < 2) return;
-        const vw = video.videoWidth, vh = video.videoHeight;
-        if (!vw || !vh) return;
-        barcodeScanBusy = true;
-        try {
-          // Matches the visible guide box in the CSS (.barcode-guide-box / curtains) — widened
-          // from the original narrow strip after real-device testing showed officers had to
-          // get uncomfortably close to fill a thin band, right at the point where the phone
-          // camera can no longer focus. A taller, more forgiving box lets the barcode be read
-          // at whatever distance the camera actually focuses at.
-          const gx0 = vw * 0.05, gx1 = vw * 0.95;
-          const gy0 = vh * 0.25, gy1 = vh * 0.75;
-          const gw = gx1 - gx0, gh = gy1 - gy0;
-          const ctx = scanCanvas.getContext('2d');
-
-          for (const scale of BARCODE_SCALES) {
-            scanCanvas.width = Math.round(gw * scale);
-            scanCanvas.height = Math.round(gh * scale);
-            ctx.imageSmoothingEnabled = true;
-            ctx.imageSmoothingQuality = 'high';
-            ctx.drawImage(video, gx0, gy0, gw, gh, 0, 0, scanCanvas.width, scanCanvas.height);
-            const imageData = ctx.getImageData(0, 0, scanCanvas.width, scanCanvas.height);
-
-            const found = await readBarcodes(imageData, {
-              tryHarder: true,
-              maxNumberOfSymbols: 1,
-              formats: ['Code128', 'Code39', 'Code93', 'ITF', 'Codabar']
-            });
-            if (found && found.length && found[0].text && found[0].text.trim()) {
-              const text = found[0].text.trim();
-              const finishedSectionType = barcodeScanSectionType;
-              closeBarcodeScanner();
-              handleBarcodeDecoded(text, finishedSectionType);
-              return;
+    // Locates the barcode's actual bounding box by looking for a region of strong HORIZONTAL
+    // gradient (alternating bars) and weak vertical gradient — a signature nothing else on a
+    // badge shares (text, photo, logos). Verified against a real badge photo: this lands within
+    // a few pixels of the barcode's true bounds. It's used here purely as a landmark: the ID
+    // text always sits directly above the bars, so finding the bars precisely is what lets the
+    // OCR crop below target that text line tightly instead of guessing at a generic band.
+    function locateBarcodeRegion(gray, w, h) {
+      const gx = new Float32Array(w * h), gy = new Float32Array(w * h);
+      const kx = [3, 0, -3, 10, 0, -10, 3, 0, -3];
+      const ky = [3, 10, 3, 0, 0, 0, -3, -10, -3];
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          let sx = 0, sy = 0, k = 0;
+          for (let dy = -1; dy <= 1; dy++) {
+            for (let dx = -1; dx <= 1; dx++) {
+              const yy = Math.min(h - 1, Math.max(0, y + dy));
+              const xx = Math.min(w - 1, Math.max(0, x + dx));
+              const v = gray[yy * w + xx];
+              sx += kx[k] * v; sy += ky[k] * v; k++;
             }
           }
-          framesTried++;
-          statusEl.innerText = `🔍 Scanning... (${framesTried} tries) — if it looks blurry, move the phone SLIGHTLY BACK until it's sharp, not closer.`;
-        } catch (e) {
-          // Surface the FIRST error only, so a persistent underlying problem (rather than one
-          // noisy bad frame) is visible on screen instead of silently retrying forever.
-          if (!firstErrorShown) {
-            firstErrorShown = true;
-            statusEl.innerText = `⚠️ Scan error: ${e && e.message ? e.message : e}`;
-          }
-        } finally {
-          barcodeScanBusy = false;
+          gx[y * w + x] = sx; gy[y * w + x] = sy;
         }
-      }, 200);
+      }
+      const diff = new Float32Array(w * h);
+      for (let i = 0; i < w * h; i++) { const d = Math.abs(gx[i]) - Math.abs(gy[i]); diff[i] = d > 0 ? d : 0; }
+
+      const boxBlur1D = (arr, radius) => {
+        const n = arr.length;
+        const integral = new Float64Array(n + 1);
+        for (let i = 0; i < n; i++) integral[i + 1] = integral[i] + arr[i];
+        const out = new Float64Array(n);
+        for (let i = 0; i < n; i++) {
+          const a = Math.max(0, i - radius), b = Math.min(n, i + radius + 1);
+          out[i] = (integral[b] - integral[a]) / (b - a);
+        }
+        return out;
+      };
+
+      const radius = Math.max(3, Math.round(w / 100));
+      const blurred = new Float64Array(w * h);
+      for (let y = 0; y < h; y++) blurred.set(boxBlur1D(diff.slice(y * w, (y + 1) * w), radius), y * w);
+      const blurred2 = new Float64Array(w * h);
+      for (let x = 0; x < w; x++) {
+        const col = new Float64Array(h);
+        for (let y = 0; y < h; y++) col[y] = blurred[y * w + x];
+        const b = boxBlur1D(col, radius);
+        for (let y = 0; y < h; y++) blurred2[y * w + x] = b[y];
+      }
+
+      let sum = 0, sumsq = 0;
+      for (let i = 0; i < w * h; i++) { sum += blurred2[i]; sumsq += blurred2[i] * blurred2[i]; }
+      const mean = sum / (w * h);
+      const std = Math.sqrt(Math.max(0, sumsq / (w * h) - mean * mean));
+      const thresh = mean + std * 1.5;
+
+      const mask = new Uint8Array(w * h);
+      for (let i = 0; i < w * h; i++) mask[i] = blurred2[i] > thresh ? 1 : 0;
+
+      const rowEnergy = new Float64Array(h);
+      for (let y = 0; y < h; y++) { let s = 0; for (let x = 0; x < w; x++) s += mask[y * w + x]; rowEnergy[y] = s; }
+      const rowSmooth = boxBlur1D(rowEnergy, 5);
+      let peakRow = 0, peakVal = -1;
+      for (let y = 0; y < h; y++) if (rowSmooth[y] > peakVal) { peakVal = rowSmooth[y]; peakRow = y; }
+      if (peakVal <= 0) return null;
+      const rowThresh = peakVal * 0.35;
+      let y0 = peakRow; while (y0 > 0 && rowSmooth[y0 - 1] > rowThresh) y0--;
+      let y1 = peakRow; while (y1 < h - 1 && rowSmooth[y1 + 1] > rowThresh) y1++;
+
+      const colEnergy = new Float64Array(w);
+      for (let x = 0; x < w; x++) { let s = 0; for (let y = y0; y <= y1; y++) s += mask[y * w + x]; colEnergy[x] = s; }
+      const colSmooth = boxBlur1D(colEnergy, 5);
+      let peakCol = 0, peakColVal = -1;
+      for (let x = 0; x < w; x++) if (colSmooth[x] > peakColVal) { peakColVal = colSmooth[x]; peakCol = x; }
+      if (peakColVal <= 0) return null;
+      const colThresh = peakColVal * 0.25;
+      let x0 = peakCol; while (x0 > 0 && colSmooth[x0 - 1] > colThresh) x0--;
+      let x1 = peakCol; while (x1 < w - 1 && colSmooth[x1 + 1] > colThresh) x1++;
+
+      return { x0, y0, x1: x1 + 1, y1: y1 + 1 };
     }
 
-    function closeBarcodeScanner() {
-      if (barcodeScanTimer) { clearInterval(barcodeScanTimer); barcodeScanTimer = null; }
-      if (barcodeStream) {
-        barcodeStream.getTracks().forEach(t => t.stop());
-        barcodeStream = null;
+
+    // The badge ID's letter prefix never needs reading at all — it's the same station code the
+    // officer already picked at the start of this session (every badge scanned at a station
+    // carries that station's own prefix, confirmed against real badges: JED-033-0711 at a JED
+    // station, etc.). Reading only the DIGIT portion (e.g. "033-0711") and prepending the known
+    // station code sidesteps letter-recognition entirely — digits-only OCR is far more reliable
+    // than mixed alphanumeric, which real testing showed was the main source of misreads
+    // ("EDTHT", "QRBE", and similar garbage mixed into otherwise-close reads).
+    function extractDigitPattern(raw) {
+      const cleaned = (raw || '').replace(/[^0-9\-]/g, '');
+      // The exact shape every real badge ID has shown (3 digits, hyphen, 4 digits) is tried
+      // first and preferred outright — verified against real photos that a looser pattern
+      // picks up unrelated nearby digits (an expiry date, a badge-slot number) just as
+      // readily as the real ID, especially in the wider fallback-band search.
+      const strict = cleaned.match(/\d{3}-\d{4}/);
+      if (strict) return strict[0];
+      const loose = cleaned.match(/\d{2,4}-\d{2,5}/);
+      return loose ? loose[0] : null;
+    }
+
+    function scoreDigitPattern(pattern, confidence) {
+      let score = confidence || 50;
+      const [a, b] = pattern.split('-');
+      if (a.length === 3 && b.length === 4) score += 25; // matches every real badge ID seen so far
+      return score;
+    }
+
+    // Returns the raw digit pattern (no station prefix yet — the caller combines that once,
+    // after picking a final pattern) plus a score, so the caller can also collect every
+    // strict-shaped reading across attempts for majority-vote correction (see readBadgeIdFromPhoto).
+    async function ocrForBadgeId(worker, canvas, psm) {
+      await worker.setParameters({ tessedit_char_whitelist: "0123456789-", tessedit_pageseg_mode: psm });
+      const res = await worker.recognize(canvas);
+      const words = (res.data.words || [])
+        .map(w => ({ text: (w.text || '').replace(/[^0-9\-]/g, ''), confidence: w.confidence }))
+        .filter(w => w.text.length >= 1);
+
+      let best = null;
+      for (const w of words) {
+        const pattern = extractDigitPattern(w.text);
+        if (!pattern) continue;
+        const score = scoreDigitPattern(pattern, w.confidence);
+        if (!best || score > best.score) best = { pattern, score };
       }
-      const video = document.getElementById('barcodeVideo');
-      if (video) video.srcObject = null;
-      document.body.classList.remove('modal-open');
-      document.getElementById('barcodeScannerModal').style.display = 'none';
+      // Also try the words run together, in case tesseract split the digits on a stray gap.
+      if (words.length > 1) {
+        const joined = extractDigitPattern(words.map(w => w.text).join(''));
+        if (joined) {
+          const avgConf = words.reduce((s, w) => s + w.confidence, 0) / words.length;
+          const score = scoreDigitPattern(joined, avgConf);
+          if (!best || score > best.score) best = { pattern: joined, score };
+        }
+      }
+      return best;
+    }
+
+    function withStationPrefix(pattern) {
+      const stationPrefix = (currentStation || '').trim().toUpperCase();
+      return `${stationPrefix}-${pattern}`;
+    }
+
+    // A single crop/preprocessing variant misreading one digit is common — but running 8
+    // variants per photo (raw + watermark-corrected, at 4 sizes) means the SAME digit position
+    // is independently read up to 8 times. Verified against a real photo where exactly one
+    // variant read the last digit as "2" while the rest agreed on "8": taking the per-position
+    // majority across every strict-shaped (DDD-DDDD) reading recovers the correct digit instead
+    // of gambling on whichever single attempt happened to score highest.
+    function majorityVoteDigitPattern(strictPatterns) {
+      if (strictPatterns.length < 3) return null;
+      const counts = {};
+      for (const p of strictPatterns) counts[p] = (counts[p] || 0) + 1;
+      const unanimous = Object.entries(counts).find(([, c]) => c === strictPatterns.length);
+      if (unanimous) return unanimous[0]; // every attempt agreed — nothing to vote on
+
+      let result = '';
+      for (let i = 0; i < 8; i++) { // "DDD-DDDD" is always exactly 8 characters
+        const charCounts = {};
+        for (const p of strictPatterns) charCounts[p[i]] = (charCounts[p[i]] || 0) + 1;
+        result += Object.entries(charCounts).sort((a, b) => b[1] - a[1])[0][0];
+      }
+      return result;
+    }
+
+    async function readBadgeIdFromPhoto(worker, img, onProgress) {
+      const iw = img.naturalWidth || img.width;
+      const ih = img.naturalHeight || img.height;
+
+      // Locate the barcode bars via their gradient signature, purely as a landmark for where
+      // the ID text sits — directly above the bars on every badge template tested.
+      if (onProgress) onProgress('🔍 Locating the badge ID number...');
+      const workScale = Math.min(1, 1400 / Math.max(iw, ih));
+      const ww = Math.max(1, Math.round(iw * workScale)), wh = Math.max(1, Math.round(ih * workScale));
+      const workCanvas = document.createElement('canvas');
+      workCanvas.width = ww; workCanvas.height = wh;
+      const wctx = workCanvas.getContext('2d');
+      wctx.drawImage(img, 0, 0, ww, wh);
+      const wpixels = wctx.getImageData(0, 0, ww, wh).data;
+      const gray = new Float32Array(ww * wh);
+      for (let i = 0, p = 0; p < wpixels.length; p += 4, i++) {
+        gray[i] = wpixels[p] * 0.299 + wpixels[p + 1] * 0.587 + wpixels[p + 2] * 0.114;
+      }
+      const region = locateBarcodeRegion(gray, ww, wh);
+      // A real barcode is a wide, short strip — verified against a real photo where the
+      // locator locked onto a spurious 22x57px patch of noise elsewhere on the frame (nothing
+      // to do with the barcode) and confidently returned it, wasting every precise-crop
+      // attempt on garbage before ever reaching the fallback search below. Rejecting anything
+      // implausibly small or non-strip-shaped up front sends those cases straight to the
+      // fallback instead.
+      const regionValid = region
+        && (region.x1 - region.x0) >= ww * 0.08
+        && (region.x1 - region.x0) > (region.y1 - region.y0) * 1.5;
+
+      if (regionValid) {
+        const ox0 = region.x0 / workScale, oy0 = region.y0 / workScale;
+        const ox1 = region.x1 / workScale, oy1 = region.y1 / workScale;
+        const barsW = ox1 - ox0, barsH = oy1 - oy0;
+
+        // The ID text line sits directly above the bars, at roughly the bars' own height —
+        // generous padding on every side covers font-size/spacing variation across templates.
+        // Widened after real-photo testing clipped the first or last digit at this crop's own
+        // edge on an otherwise-correct read (e.g. "8268" losing its trailing "8").
+        const padX = barsW * 0.3;
+        const textX0 = Math.max(0, ox0 - padX), textX1 = Math.min(iw, ox1 + padX);
+        const textY0 = Math.max(0, oy0 - barsH * 2.2), textY1 = Math.min(ih, oy0 + barsH * 0.15);
+        const cropW = textX1 - textX0, cropH = textY1 - textY0;
+        const crop = cropW > 2 && cropH > 2 ? extractPixels(img, textX0, textY0, cropW, cropH) : null;
+
+        // A character-level misread here and there is common on a single narrow crop — rather
+        // than trusting the first passable read, every variant (raw + watermark/glare-corrected,
+        // at several resolutions) is scored, AND every strict-shaped (DDD-DDDD) reading is kept
+        // for a per-digit majority vote afterward, which is what actually recovers an isolated
+        // single-digit misread (see majorityVoteDigitPattern above).
+        let best = null;
+        const strictPatterns = [];
+        const consider = (cand) => {
+          if (!cand) return;
+          if (!best || cand.score > best.score) best = cand;
+          if (/^\d{3}-\d{4}$/.test(cand.pattern)) strictPatterns.push(cand.pattern);
+        };
+
+        if (crop) {
+          if (onProgress) onProgress('🔍 Reading the badge ID number...');
+          const rawCanvas = document.createElement('canvas');
+          rawCanvas.width = crop.w; rawCanvas.height = crop.h;
+          rawCanvas.getContext('2d').putImageData(new ImageData(crop.data, crop.w, crop.h), 0, 0);
+
+          // The same local-contrast correction the name-OCR pass uses to strip a security
+          // watermark or sun glare off a card — just as useful here, since the ID text sits on
+          // the same printed surface and can carry the same interference.
+          const thresholdCanvas = document.createElement('canvas');
+          thresholdCanvas.width = crop.w; thresholdCanvas.height = crop.h;
+          thresholdCanvas.getContext('2d').putImageData(new ImageData(crop.data.slice(), crop.w, crop.h), 0, 0);
+          badgeEvenOutLighting(thresholdCanvas);
+
+          // A plain contrast stretch, distinct from the local-threshold version above — helps
+          // a dim or glare-washed crop where the useful brightness range is compressed into a
+          // narrow band, without the local-threshold pass's tendency to lose faint strokes.
+          const contrastCanvas = document.createElement('canvas');
+          contrastCanvas.width = crop.w; contrastCanvas.height = crop.h;
+          contrastCanvas.getContext('2d').putImageData(new ImageData(crop.data.slice(), crop.w, crop.h), 0, 0);
+          badgeGrayscaleAutoContrast(contrastCanvas);
+
+          // No early exit here on purpose: every variant needs to run for the majority vote
+          // above to have enough independent readings to actually correct a misread digit.
+          for (const variant of [rawCanvas, thresholdCanvas, contrastCanvas]) {
+            for (const targetH of [90, 130, 180, 250]) {
+              const scale = targetH / crop.h;
+              const bigCanvas = document.createElement('canvas');
+              bigCanvas.width = Math.max(1, Math.round(crop.w * scale));
+              bigCanvas.height = Math.max(1, Math.round(crop.h * scale));
+              const bctx = bigCanvas.getContext('2d');
+              bctx.imageSmoothingEnabled = true; bctx.imageSmoothingQuality = 'high';
+              bctx.drawImage(variant, 0, 0, bigCanvas.width, bigCanvas.height);
+              consider(await ocrForBadgeId(worker, bigCanvas, '7'));
+            }
+          }
+        }
+
+        const voted = majorityVoteDigitPattern(strictPatterns);
+        if (voted) return withStationPrefix(voted);
+
+        // A strong-enough candidate from the precise crop is trusted without burning time on
+        // the wider fallback search below.
+        if (best && best.score >= 70) return withStationPrefix(best.pattern);
+
+        // Fallback: OCR a few wider bands across the lower half of the card (every badge
+        // template tested puts the ID text there, if not exactly where the bars were located)
+        // in sparse-text mode, in case the bars weren't found precisely enough for the crop
+        // above — still scored against whatever the precise crop already found.
+        if (onProgress) onProgress('🔍 Searching more of the card for the ID number...');
+        const bandCenters = [0.55, 0.65, 0.45, 0.75, 0.35, 0.85];
+        const workLongSide = Math.min(1800, iw);
+        for (const yc of bandCenters) {
+          const by0 = Math.max(0, ih * (yc - 0.09));
+          const by1 = Math.min(ih, ih * (yc + 0.09));
+          const scale = workLongSide / iw;
+          const bandCanvas = document.createElement('canvas');
+          bandCanvas.width = Math.round(iw * scale);
+          bandCanvas.height = Math.round((by1 - by0) * scale);
+          const bctx = bandCanvas.getContext('2d');
+          bctx.drawImage(img, 0, by0, iw, by1 - by0, 0, 0, bandCanvas.width, bandCanvas.height);
+          consider(await ocrForBadgeId(worker, bandCanvas, '11'));
+          if (best && best.score >= 90) return withStationPrefix(best.pattern);
+        }
+
+        return best ? withStationPrefix(best.pattern) : null;
+      }
+
+      // No bars located (or the located region didn't pass the sanity check above): fall back
+      // to the same wider-band search across the lower half of the card, since the ID text
+      // still has to be somewhere there regardless.
+      if (onProgress) onProgress('🔍 Searching the photo for the ID number...');
+      let best = null;
+      const bandCenters = [0.55, 0.65, 0.45, 0.75, 0.35, 0.85];
+      const workLongSide = Math.min(1800, iw);
+      for (const yc of bandCenters) {
+        const by0 = Math.max(0, ih * (yc - 0.09));
+        const by1 = Math.min(ih, ih * (yc + 0.09));
+        const scale = workLongSide / iw;
+        const bandCanvas = document.createElement('canvas');
+        bandCanvas.width = Math.round(iw * scale);
+        bandCanvas.height = Math.round((by1 - by0) * scale);
+        const bctx = bandCanvas.getContext('2d');
+        bctx.drawImage(img, 0, by0, iw, by1 - by0, 0, 0, bandCanvas.width, bandCanvas.height);
+        const cand = await ocrForBadgeId(worker, bandCanvas, '11');
+        if (cand && (!best || cand.score > best.score)) best = cand;
+        if (best && best.score >= 90) return withStationPrefix(best.pattern);
+      }
+      return best ? withStationPrefix(best.pattern) : null;
+    }
+
+    async function processBarcodePhoto(input, sectionType) {
+      if (!input.files || !input.files[0] || isScanningBadge) return;
+
+      isScanningBadge = true;
+      const file = input.files[0];
+      const fb = document.getElementById('ocrFeedback');
+      const label = document.getElementById(`barcode-label-${sectionType}`);
+      const labelOriginalText = label ? label.innerHTML : '';
+      if (label) { label.classList.add('scan-active'); label.innerHTML = '⏳ Reading Badge ID...'; }
+      if (fb) fb.innerText = '⚡ Loading photo...';
+
+      let objectUrl = null;
+      try {
+        const img = new Image();
+        objectUrl = URL.createObjectURL(file);
+        img.src = objectUrl;
+        await new Promise((resolve, reject) => {
+          img.onload = resolve;
+          img.onerror = () => reject(new Error('This photo could not be opened — try taking it again'));
+        });
+
+        let worker;
+        try {
+          worker = await badgeGetWorker();
+        } catch (err) {
+          throw new Error('OCR engine could not load — check your connection and try again');
+        }
+
+        const barcodeId = await readBadgeIdFromPhoto(worker, img, (msg) => { if (fb) fb.innerText = msg; });
+
+        if (barcodeId) {
+          handleBarcodeDecoded(barcodeId, sectionType);
+        } else {
+          if (fb) fb.innerText = '⚠️ Could not read the ID number next to the barcode — try better lighting, or use Scan ID Badge instead.';
+        }
+      } catch (err) {
+        const reason = (err && err.message) ? err.message : 'Unknown error';
+        if (fb) fb.innerText = `⚠️ ${reason} — tap Scan Barcode to try again.`;
+        console.error('Barcode scan failed:', err);
+      } finally {
+        if (objectUrl) URL.revokeObjectURL(objectUrl);
+        isScanningBadge = false;
+        if (label) { label.classList.remove('scan-active'); label.innerHTML = labelOriginalText; }
+        input.value = '';
+      }
     }
 
     function handleBarcodeDecoded(barcodeId, sectionType) {
