@@ -3,180 +3,104 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ماسح بطاقات الموظفين - السريع</title>
-    <script async src="https://docs.opencv.org/4.x/opencv.js" onload="onOpenCvReady()"></script>
+    <title>ماسح سريع وبسيط</title>
+    <!-- مكتبة Tesseract فقط -->
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <style>
-        body { font-family: system-ui, sans-serif; text-align: center; background: #f0f2f5; padding: 20px; }
-        .container { display: flex; flex-direction: column; align-items: center; gap: 15px; max-width: 450px; margin: 0 auto; }
-        
-        .video-wrapper { position: relative; width: 100%; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
-        video { width: 100%; display: block; }
-        
-        /* إطار التوجيه */
-        .guide-box {
-            position: absolute;
-            top: 50%; left: 50%;
-            transform: translate(-50%, -50%);
-            width: 85%; height: 55%;
-            border: 2px dashed #2196F3;
-            border-radius: 8px;
-            box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.45);
-            pointer-events: none;
-        }
-
-        /* تحديد المنطقة المخصصة للرقم (الجهة اليمنى السفلية) */
-        .roi-box {
-            position: absolute;
-            bottom: 8%; right: 5%;
-            width: 45%; height: 30%;
-            border: 2px solid #00E676;
-            background: rgba(0, 230, 118, 0.15);
-            border-radius: 4px;
-        }
-        .roi-text { color: #fff; font-size: 0.7rem; background: rgba(0,0,0,0.7); padding: 2px 5px; border-radius: 3px; position: absolute; top: -20px; right: 0; }
-
-        button { background: #2196F3; color: white; border: none; padding: 12px 24px; font-size: 1rem; font-weight: bold; border-radius: 8px; cursor: pointer; }
-        button:disabled { background: #b0bec5; cursor: not-allowed; }
-        
-        #result { font-size: 1.3rem; font-weight: bold; color: #1b5e20; background: #e8f5e9; padding: 12px; border-radius: 8px; border: 1px solid #a5d6a7; width: 100%; box-sizing: border-box; }
-        #status { color: #555; font-size: 0.9rem; }
+        body { font-family: sans-serif; text-align: center; background: #f8f9fa; padding: 20px; }
+        .container { max-width: 400px; margin: 0 auto; display: flex; flex-direction: column; gap: 15px; }
+        video { width: 100%; border-radius: 8px; border: 2px solid #333; }
+        button { padding: 14px; font-size: 1.1rem; background: #28a745; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; }
+        button:disabled { background: #ccc; }
+        #result { padding: 15px; font-size: 1.2rem; font-weight: bold; background: #e9ecef; border-radius: 8px; color: #212529; }
+        #status { font-size: 0.9rem; color: #6c757d; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h2>ماسح رقم البطاقة (سريع)</h2>
-    <p id="status">جاري تهيئة النظام وتجهيز المحرك...</p>
+    <h2>ماسح البطاقات المباشر</h2>
+    <p id="status">جاري تشغيل الكاميرا...</p>
     
-    <div class="video-wrapper">
-        <video id="videoInput" autoplay playsinline muted></video>
-        <div class="guide-box">
-            <!-- مربع أخضر يحدد مكان الرقم فوق الباركود -->
-            <div class="roi-box">
-                <span class="roi-text">مكان الرقم</span>
-            </div>
-        </div>
-    </div>
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="canvas" style="display:none;"></canvas>
     
-    <button id="scanBtn" onclick="captureAndScan()" disabled>التقاط وقراءة الرقم</button>
+    <button id="scanBtn" onclick="scanNow()">التقاط وقراءة النص مباشرة</button>
     
-    <div id="result">الرقم المستخرج: ---</div>
-
-    <!-- معاينة المنطقة المقصوصة فقط -->
-    <div>
-        <div style="font-size: 0.8rem; margin-top:5px;">منطقة الرقم المعالجة:</div>
-        <canvas id="roiCanvas" style="border:1px solid #ccc; max-width: 200px;"></canvas>
-    </div>
+    <div id="result">النتيجة: ---</div>
 </div>
 
 <script>
-let isOpenCvReady = false;
-let tesseractWorker = null;
+const video = document.getElementById('video');
+const canvas = document.getElementById('canvas');
+const statusText = document.getElementById('status');
+const resultText = document.getElementById('result');
+const scanBtn = document.getElementById('scanBtn');
 
-// 1. تهيئة المحرك مسبقاً لمنع التأخير عند الضغط
-async function initTesseract() {
-    tesseractWorker = await Tesseract.createWorker('eng');
-    await tesseractWorker.setParameters({
-        tessedit_char_whitelist: 'JED0123456789-',
-        tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE, // القراءة كسطر واحد فقط لزيادة السرعة
-    });
-    checkReadyStatus();
-}
-
-function onOpenCvReady() {
-    isOpenCvReady = true;
-    checkReadyStatus();
-}
-
-function checkReadyStatus() {
-    if (isOpenCvReady && tesseractWorker) {
-        document.getElementById('status').innerText = "النظام جاهز! ضع الرقم داخل المربع الأخضر واضغط التقاط.";
-        startCamera();
-    }
-}
-
-// تشغيل Tesseract فور فتح الصفحة
-initTesseract();
-
-// 2. تشغيل الكاميرا
-async function startCamera() {
+// 1. تشغيل الكاميرا فور فتح الصفحة
+async function initCamera() {
     try {
-        const stream = await navigator.mediaDevices.getUserMedia({ 
-            video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } } 
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } }
         });
-        const video = document.getElementById('videoInput');
         video.srcObject = stream;
-        document.getElementById('scanBtn').disabled = false;
+        statusText.innerText = "الكاميرا جاهزة. وجّه الكاميرا نحو البطاقة واضغط قراءة.";
     } catch (err) {
-        document.getElementById('status').innerText = "خطأ في الكاميرا: " + err.message;
+        statusText.innerText = "خطأ في فتح الكاميرا: " + err.message;
     }
 }
 
-// 3. اقتطاع المنطقة اليمنى السفلية فقط (التي تحتوي الرقم فوق الباركود)
-function getCroppedRoi(srcMat) {
-    // تحديد الإحداثيات بناءً على موقع المربع الأخضر في الجهة اليمنى السفلية
-    let x = Math.floor(srcMat.cols * 0.48);
-    let y = Math.floor(srcMat.rows * 0.48);
-    let width = Math.floor(srcMat.cols * 0.42);
-    let height = Math.floor(srcMat.rows * 0.22);
+// 2. التقاط الصورة الحالية وقراءتها مباشرة بدون أي معالجة
+async function scanNow() {
+    scanBtn.disabled = true;
+    statusText.innerText = "جاري التقاط الصورة وقراءة النص...";
+    resultText.innerText = "النتيجة: جاري المعالجة...";
 
-    let rect = new cv.Rect(x, y, width, height);
-    let roi = srcMat.roi(rect);
-
-    // تحويل للرمادي وتحسين التباين مع إزالة التلميع
-    let gray = new cv.Mat();
-    cv.cvtColor(roi, gray, cv.COLOR_RGBA2GRAY);
-
-    let processed = new cv.Mat();
-    // تكبير المنطقة قليلاً لتسهيل قراءة النص
-    cv.resize(gray, processed, new cv.Size(0, 0), 1.5, 1.5, cv.INTER_CUBIC);
-    cv.adaptiveThreshold(processed, processed, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 13, 6);
-
-    roi.delete(); gray.delete();
-    return processed;
-}
-
-// 4. التقاط ومعالجة الجزء المطلوب فقط
-async function captureAndScan() {
-    document.getElementById('status').innerText = "جاري القراءة بشكل سريع...";
-    document.getElementById('scanBtn').disabled = true;
-
-    let video = document.getElementById('videoInput');
-    let src = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
-    let cap = new cv.VideoCapture(video);
-    cap.read(src);
-
-    // استخراج وعرض المنطقة المفصلة فقط
-    let roiMat = getCroppedRoi(src);
-    cv.imshow('roiCanvas', roiMat);
-
-    const canvasForOcr = document.getElementById('roiCanvas');
+    // رسم الإطار الحالي على الكانفاس
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
     try {
-        // قراءة الصورة المصغرة جداً (تستغرق جزء من الثانية)
-        const { data: { text } } = await tesseractWorker.recognize(canvasForOcr);
+        // تشغيل Tesseract مباشرة على الكانفاس
+        const result = await Tesseract.recognize(canvas, 'eng', {
+            logger: m => {
+                if(m.status === 'recognizing text') {
+                    statusText.innerText = `جاري القراءة... (${Math.round(m.progress * 100)}%)`;
+                }
+            }
+        });
 
-        // تنظيف النص وتطبيق الباترن JED-XXX-XXXX
-        const cleanedText = text.replace(/\s+/g, '');
-        const regexPattern = /JED-\d{3}-\d{4}/gi;
-        const matched = cleanedText.match(regexPattern);
+        const rawText = result.data.text;
+        console.log("النصر المقروء الكامل:", rawText);
 
-        if (matched && matched.length > 0) {
-            document.getElementById('result').innerText = `الرقم المستخرج: ${matched[0].toUpperCase()}`;
-            document.getElementById('status').innerText = "تمت القراءة بنجاح!";
+        // البحث عن النمط JED-XXX-XXXX
+        // قبول مسافات أو أخطاء بسيطة مثل JED-123-4567
+        const regex = /JED\s*[-–—]?\s*\d{3}\s*[-–—]?\s*\d{4}/gi;
+        const match = rawText.match(regex);
+
+        if (match && match.length > 0) {
+            // تنسيق النتيجة بالشكل الصحيح
+            let cleanNumber = match[0].replace(/\s+/g, '').toUpperCase();
+            if(!cleanNumber.includes('-')) {
+                cleanNumber = cleanNumber.replace(/JED(\d{3})(\d{4})/, "JED-$1-$2");
+            }
+            resultText.innerText = "الرقم المستخرج: " + cleanNumber;
+            statusText.innerText = "تمت القراءة بنجاح!";
         } else {
-            document.getElementById('result').innerText = "لم يتم العثور على الرقم بالنمط الصحيح.";
-            document.getElementById('status').innerText = "تأكد من وجود الرقم داخل المربع الأخضر بشكل واضح.";
+            resultText.innerText = "لم يتم العثور على الرقم بالنمط المطلوبة.";
+            statusText.innerText = "تأكد من إضاءة الغرفة ووضوح الرقم أمام الكاميرا.";
         }
-    } catch (error) {
-        console.error(error);
-        document.getElementById('status').innerText = "حدث خطأ أثناء القراءة.";
+    } catch (err) {
+        console.error(err);
+        statusText.innerText = "حدث خطأ أثناء القراءة: " + err.message;
     } finally {
-        src.delete(); roiMat.delete();
-        document.getElementById('scanBtn').disabled = false;
+        scanBtn.disabled = false;
     }
 }
+
+initCamera();
 </script>
 
 </body>
