@@ -3,19 +3,33 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ماسح البطاقات المحلي (بدون كلاود)</title>
+    <title>ماسح البطاقات الثابت (تجميد الصورة)</title>
     
-    <!-- تحميل Tesseract.js و OpenCV.js (محلياً بالكامل) -->
+    <!-- تحميل Tesseract.js (محلياً بالكامل) -->
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-    <script async src="https://docs.opencv.org/4.x/opencv.js" onload="onOpenCvReady()"></script>
     
     <style>
         body { font-family: system-ui, sans-serif; text-align: center; background: #f0f2f5; margin: 0; padding: 20px; }
-        .container { display: flex; flex-direction: column; align-items: center; gap: 15px; max-width: 480px; margin: 0 auto; }
-        .video-wrapper { position: relative; width: 100%; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.15); background: #000; }
-        video { width: 100%; display: block; }
+        .container { display: flex; flex-direction: column; align-items: center; gap: 15px; max-width: 450px; margin: 0 auto; }
         
-        /* إطار توجيه برتقالي للخصوصية والمحاذاة */
+        .image-viewer { 
+            position: relative; 
+            width: 100%; 
+            aspect-ratio: 4/3; /* الحفاظ على نسبة العرض للارتفاع */
+            border-radius: 12px; 
+            overflow: hidden; 
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15); 
+            background: #000; 
+        }
+        
+        video, #photoPreview { 
+            width: 100%; 
+            height: 100%; 
+            object-fit: cover; /* جعل الصورة تغطي الحاوية بالكامل */
+            display: block; 
+        }
+        
+        /* إطار توجيه برتقالي للمحاذاة */
         .guide-box {
             position: absolute;
             top: 50%; left: 50%;
@@ -26,221 +40,173 @@
             box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
             pointer-events: none;
             display: flex;
-            align-items: flex-end;
+            align-items: center;
             justify-content: center;
-            padding-bottom: 20px;
         }
-        .guide-text { color: #fff; background: rgba(0,0,0,0.7); padding: 5px 10px; border-radius: 4px; font-size: 0.8rem; }
-
-        button { background: #28a745; color: white; border: none; padding: 12px 24px; font-size: 1rem; font-weight: bold; border-radius: 8px; cursor: pointer; transition: 0.2s; }
+        
+        .actions { display: flex; gap: 10px; width: 100%; justify-content: center; margin-top: 10px; }
+        button { flex: 1; padding: 14px 24px; font-size: 1.1rem; font-weight: bold; border: none; border-radius: 8px; cursor: pointer; transition: 0.2s; }
+        
+        /* أزرار الحالات المختلفة */
+        .btn-primary { background: #007bff; color: white; }
+        .btn-success { background: #28a745; color: white; }
+        .btn-secondary { background: #6c757d; color: white; }
+        
         button:disabled { background: #b0bec5; cursor: not-allowed; }
         
         #result { font-size: 1.3rem; font-weight: bold; color: #1b5e20; background: #e8f5e9; padding: 12px; border-radius: 8px; border: 1px solid #a5d6a7; width: 100%; box-sizing: border-box; min-height: 50px;}
         #status { color: #555; font-size: 0.9rem; }
-        
-        /* معارض المعاينة لأغراض التصحيح (يمكن إخفاؤها بـ display:none لاحقاً) */
-        .preview-pane { display: flex; gap: 10px; margin-top: 10px; justify-content: center; }
-        .preview-pane canvas { border: 1px solid #ccc; max-width: 150px; background: white; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h2>ماسح البطاقات المحلي (Tesseract Only)</h2>
-    <p id="status">جاري تهيئة OpenCV و Tesseract...</p>
+    <h2>ماسح البطاقات الثابت (صورة)</h2>
+    <p id="status">جاري تشغيل الكاميرا...</p>
     
-    <div class="video-wrapper">
+    <div class="image-viewer">
+        <!-- الفيديو الحي -->
         <video id="videoInput" autoplay playsinline muted></video>
-        <div class="guide-box">
-            <span class="guide-text">وجه البطاقة داخل الإطار البرتقالي</span>
+        
+        <!-- معاينة الصورة الثابتة (Freeze) -->
+        <img id="photoPreview" style="display:none;" src="" alt="Captured ID">
+        
+        <!-- إطار التوجيه البرتقالي -->
+        <div class="guide-box" id="guideBox">
+            <span class="status-overlay" style="color: #fff; background: rgba(0,0,0,0.6); padding: 4px 8px; border-radius: 4px; display: none;">جاري القراءة...</span>
         </div>
     </div>
     
-    <button id="scanBtn" onclick="captureAndScan()" disabled>التقاط وقراءة الرقم (محلي)</button>
-    
-    <div id="result">النتيجة: ---</div>
-
-    <!-- معاينة المنطقة التي تم قصها وتحسينها -->
-    <div class="preview-pane">
-        <div>
-            <div style="font-size:0.7rem">المنطقة المقصوصة (ROI)</div>
-            <canvas id="roiCanvas"></canvas>
-        </div>
-        <div>
-            <div style="font-size:0.7rem">بعد المعالجة (OCR Ready)</div>
-            <canvas id="processedCanvas"></canvas>
-        </div>
+    <!-- الأزرار التفاعلية -->
+    <div class="actions" id="initialActions">
+        <button id="captureBtn" class="btn-primary" onclick="captureAndFreeze()" disabled>التقاط وتجميد الصورة</button>
     </div>
+    
+    <div class="actions" id="postCaptureActions" style="display:none;">
+        <button class="btn-secondary" onclick="resetApp()">إعادة التقاط</button>
+        <button class="btn-success" id="useNumberBtn" disabled>استخدام الرقم</button>
+    </div>
+    
+    <div id="result">الرقم المستخرج: ---</div>
+    <canvas id="canvas" style="display:none;"></canvas>
 </div>
 
 <script>
-let isOpenCvReady = false;
-let isTesseractReady = false;
-const video = document.getElementById('videoInput');
-const resultText = document.getElementById('result');
-const statusText = document.getElementById('status');
-const scanBtn = document.getElementById('scanBtn');
+    let tesseractWorker = null;
+    let extractedNumber = null;
+    
+    const video = document.getElementById('videoInput');
+    const photoPreview = document.getElementById('photoPreview');
+    const canvas = document.getElementById('canvas');
+    const guideBox = document.getElementById('guideBox');
+    const statusOverlay = guideBox.querySelector('.status-overlay');
+    
+    const resultText = document.getElementById('result');
+    const statusText = document.getElementById('status');
+    const captureBtn = document.getElementById('captureBtn');
+    const useNumberBtn = document.getElementById('useNumberBtn');
+    
+    const initialActions = document.getElementById('initialActions');
+    const postCaptureActions = document.getElementById('postCaptureActions');
 
-// 1. تهيئة الكاميرا و OpenCV و Tesseract (حبه حبه)
-function onOpenCvReady() {
-    isOpenCvReady = true;
-    checkReadyStatus();
-}
-
-async function startCamera() {
-    try {
-        const stream = await navigator.mediaDevices.getUserMedia({ 
-            video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } } 
-        });
-        video.srcObject = stream;
-        checkReadyStatus();
-    } catch (err) {
-        statusText.innerText = "خطأ في الكاميرا: " + err.message;
-    }
-}
-
-async function initTesseract() {
-   statusText.innerText = "جاري تحميل Tesseract (قد يأخذ وقتاً)...";
-    // *** هذا السطر يقوم بتحميل المحرك في الخلفية ***
-    await Tesseract.createWorker('eng'); 
-    isTesseractReady = true;
-    checkReadyStatus();
-}
-
-function checkReadyStatus() {
-    if (isOpenCvReady && isTesseractReady && video.srcObject) {
-        statusText.innerText = "النظام المحلي جاهز! وجه البطاقة واضغط التقاط.";
-        scanBtn.disabled = false;
-    }
-}
-
-// البدء فوراً
-startCamera();
-initTesseract();
-
-// 2. معالجة OpenCV المحلية: البحث عن الرقم وتنظيف التلميع
-// هذه الخوارزمية تبحث عن منطقة النص في النصف السفلي من البطاقة
-function getProcessedRoiMat(src) {
-    // تحديد مساحة النصف السفلي من البطاقة
-    let yStart = Math.floor(src.rows * 0.5);
-    let rectBottom = new cv.Rect(0, yStart, src.cols, src.rows - yStart);
-    let bottomMat = src.roi(rectBottom);
-
-    // تحويل للرمادي
-    let gray = new cv.Mat();
-    cv.cvtColor(bottomMat, gray, cv.COLOR_RGBA2GRAY);
-
-    // تصفية التلميع باستخدام Adaptive Thresholding (البيض والأسود النقي)
-    // هذا الجزء هام جداً لفصل التلميع عن الرقم كما في image_2.png
-    let thresh = new cv.Mat();
-    cv.adaptiveThreshold(gray, thresh, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 15, 7);
-
-    // الآن نبحث عن منطقة النص الأفقي JED-XXX-XXXX
-    // نقوم بتطبيق Canny و Dilation للجمع بين الأحرف في كتل
-    let canny = new cv.Mat();
-    cv.Canny(thresh, canny, 50, 150);
-    let kernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(15, 3));
-    let dilation = new cv.Mat();
-    cv.dilate(canny, dilation, kernel);
-
-    let contours = new cv.MatVector();
-    let hierarchy = new cv.Mat();
-    cv.findContours(dilation, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
-
-    let textRect = null;
-    let maxArea = 0;
-
-    // البحث عن أكبر مستطيل أفقي (غالباً هو منطقة النص)
-    for (let i = 0; i < contours.size(); ++i) {
-        let cnt = contours.get(i);
-        let area = cv.contourArea(cnt);
-        let rect = cv.boundingRect(cnt);
-        // النص أفقي (العرض أكبر من الارتفاع)
-        if (area > 1000 && rect.width > rect.height * 2) {
-            if (area > maxArea) {
-                maxArea = area;
-                textRect = rect;
-            }
+    // 1. تهيئة الكاميرا و Tesseract مسبقاً
+    async function initApp() {
+        try {
+            // تشغيل الكاميرا
+            const stream = await navigator.mediaDevices.getUserMedia({ 
+                video: { facingMode: "environment", width: { ideal: 1280 } } 
+            });
+            video.srcObject = stream;
+            
+            // تهيئة Tesseract العامل في الخلفية (Pre-warm) للسرعة
+            statusText.innerText = "جاري تهيئة محرك Tesseract محلياً...";
+            tesseractWorker = await Tesseract.createWorker('eng');
+            await tesseractWorker.setParameters({
+                tessedit_char_whitelist: 'JED0123456789-',
+                tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE, 
+            });
+            
+            statusText.innerText = "النظام المحلي جاهز! وجه البطاقة واضغط التقاط.";
+            captureBtn.disabled = false;
+        } catch (err) {
+            statusText.innerText = "خطأ في التهيئة: " + err.message;
         }
     }
 
-    let resultMat = null;
+    // 2. التقاط وتجميد الصورة (Freeze)
+    async function captureAndFreeze() {
+        captureBtn.disabled = true;
+        statusText.innerText = "جاري التقاط الصورة وتجميدها للتحليل المحلي...";
+        resultText.innerText = "النتيجة: جاري المعالجة محلياً...";
 
-    if (textRect) {
-        // إذا وجدنا منطقة النص، نقتطعها من الـ Thresh (الأبيض والأسود)
-        // ونكبرها قليلاً لتحسين القراءة
-        let roiMat = thresh.roi(textRect);
-        resultMat = new cv.Mat();
-        cv.resize(roiMat, resultMat, new cv.Size(0, 0), 2, 2, cv.INTER_CUBIC);
-        cv.imshow('roiCanvas', roiMat);
-        roiMat.delete();
-    }
+        // رسم الإطار الحالي للفيديو على الكانفاس لتجميده
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(video, 0, 0);
 
-    // تنظيف الذاكرة
-    bottomMat.delete(); gray.delete(); thresh.delete(); canny.delete(); kernel.delete(); dilation.delete(); contours.delete(); hierarchy.delete();
-
-    return resultMat; // نعود بالصورة المعالجة للنص، أو null إذا لم نجدها
-}
-
-// 3. التقاط واستخراج الرقم محلياً
-async function captureAndScan() {
-    statusText.innerText = "جاري التقاط ومعالجة الصورة محلياً...";
-    scanBtn.disabled = true;
-    resultText.innerText = "النتيجة: جاري القراءة محلياً...";
-
-    let src = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
-    let cap = new cv.VideoCapture(video);
-    cap.read(src);
-
-    // أ) تطبيق خوارزمية OpenCV المحلية
-    let processedNumMat = getProcessedRoiMat(src);
-
-    if (!processedNumMat) {
-        resultText.innerText = "تعذر تحديد منطقة النص محلياً.";
-        statusText.innerText = "تأكد من وضوح النصف السفلي من البطاقة.";
-        src.delete();
-        scanBtn.disabled = false;
-        return;
-    }
-
-    // ب) عرض الصورة المعالجة نهائياً قبل إرسالها للـ OCR
-    cv.imshow('processedCanvas', processedNumMat);
-    const canvasForOcr = document.getElementById('processedCanvas');
-
-    try {
-        statusText.innerText = "جاري تشغيل Tesseract محلياً (Worker)...";
+        // تحويل الكانفاس لصورة (Base64) وعرضها بدلاً من الفيديو
+        const imageData = canvas.toDataURL('image/jpeg');
+        photoPreview.src = imageData;
         
-        // ج) تشغيل Tesseract محلياً مع وضع Single Line للسرعة
-        const worker = await Tesseract.createWorker('eng');
-        await worker.setParameters({
-            tessedit_char_whitelist: 'JED0123456789-',
-            tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE, 
-        });
+        // إخفاء الفيديو وإظهار الصورة الثابتة (Freeze)
+        video.style.display = 'none';
+        photoPreview.style.display = 'block';
+        
+        // إظهار حالة القراءة على الصورة
+        statusOverlay.style.display = 'block';
 
-        const { data: { text } } = await worker.recognize(canvasForOcr);
-        await worker.terminate();
+        // تغيير الأزرار
+        initialActions.style.display = 'none';
+        postCaptureActions.style.display = 'flex';
 
-        // د) تنظيف ومطابقة البترن JED-XXX-XXXX
-        const cleanedText = text.replace(/\s+/g, '').toUpperCase();
-        const regexPattern = /JED-\d{3}-\d{4}/g;
-        const matched = cleanedText.match(regexPattern);
+        // 3. تحليل الصورة المجمدة محلياً
+        try {
+            // القراءة من الكانفاس الثابت (Frozen Image)
+            const { data: { text } } = await tesseractWorker.recognize(canvas);
+            console.log("النص المقروء محلياً:", text);
 
-        if (matched && matched.length > 0) {
-            resultText.innerText = "الرقم المستخرج: " + matched[0];
-            statusText.innerText = "تمت القراءة بنجاح محلياً!";
-        } else {
-            resultText.innerText = "تعذر قراءة النمط JED من المنطقة المقصوصة.";
-            statusText.innerText = "تأكد من إضاءة الغرفة ووضوح البطاقة.";
+            // مطابقة البترن JED-XXX-XXXX
+            const regexPattern = /JED-\d{3}-\d{4}/g;
+            const matched = text.replace(/\s+/g, '').match(regexPattern);
+
+            if (matched) {
+                extractedNumber = matched[0].toUpperCase();
+                resultText.innerText = "الرقم المستخرج: " + extractedNumber;
+                statusText.innerText = "تمت القراءة بنجاح محلياً!";
+                useNumberBtn.disabled = false;
+            } else {
+                resultText.innerText = "لم يتم العثور على الرقم في الصورة الثابتة.";
+                statusText.innerText = "تأكد من وضوح البطاقة واضغط 'إعادة التقاط'.";
+            }
+        } catch (error) {
+            console.error(error);
+            statusText.innerText = "حدث خطأ أثناء معالجة OCR المحلي.";
+        } finally {
+            statusOverlay.style.display = 'none';
         }
-    } catch (error) {
-        console.error(error);
-        statusText.innerText = "حدث خطأ أثناء معالجة OCR المحلي.";
-    } finally {
-        src.delete();
-        processedNumMat.delete();
-        scanBtn.disabled = false;
     }
-}
+
+    // 4. إعادة تشغيل التطبيق (Reset)
+    function resetApp() {
+        // إخفاء الصورة وإظهار الفيديو من جديد (Live)
+        photoPreview.style.display = 'none';
+        video.style.display = 'block';
+        
+        // مسح النتائج
+        resultText.innerText = "النتيجة: ---";
+        statusText.innerText = "وجه البطاقة مرة أخرى واضغط التقاط.";
+        extractedNumber = null;
+        
+        // استعادة الأزرار الأولية
+        postCaptureActions.style.display = 'none';
+        initialActions.style.display = 'flex';
+        captureBtn.disabled = false;
+        useNumberBtn.disabled = true;
+    }
+
+    // البدء فوراً
+    initApp();
 </script>
 
 </body>
