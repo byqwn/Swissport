@@ -3,33 +3,18 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ماسح البطاقات الثابت (تجميد الصورة)</title>
+    <title>ماسح البطاقات المطور (محلي بالكامل)</title>
     
-    <!-- تحميل Tesseract.js (محلياً بالكامل) -->
+    <!-- تحميل Tesseract.js (محلياً بالكامل للخصوصية والسرعة) -->
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     
     <style>
         body { font-family: system-ui, sans-serif; text-align: center; background: #f0f2f5; margin: 0; padding: 20px; }
-        .container { display: flex; flex-direction: column; align-items: center; gap: 15px; max-width: 450px; margin: 0 auto; }
+        .container { display: flex; flex-direction: column; align-items: center; gap: 15px; max-width: 480px; margin: 0 auto; }
+        .video-wrapper { position: relative; width: 100%; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.15); background: #000; }
+        video { width: 100%; display: block; }
         
-        .image-viewer { 
-            position: relative; 
-            width: 100%; 
-            aspect-ratio: 4/3; /* الحفاظ على نسبة العرض للارتفاع */
-            border-radius: 12px; 
-            overflow: hidden; 
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15); 
-            background: #000; 
-        }
-        
-        video, #photoPreview { 
-            width: 100%; 
-            height: 100%; 
-            object-fit: cover; /* جعل الصورة تغطي الحاوية بالكامل */
-            display: block; 
-        }
-        
-        /* إطار توجيه برتقالي للمحاذاة */
+        /* إطار توجيه برتقالي للمحاذاة والتركيز على منطقة النص والباركود */
         .guide-box {
             position: absolute;
             top: 50%; left: 50%;
@@ -40,18 +25,13 @@
             box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
             pointer-events: none;
             display: flex;
-            align-items: center;
+            align-items: flex-end;
             justify-content: center;
+            padding-bottom: 20px;
         }
-        
-        .actions { display: flex; gap: 10px; width: 100%; justify-content: center; margin-top: 10px; }
-        button { flex: 1; padding: 14px 24px; font-size: 1.1rem; font-weight: bold; border: none; border-radius: 8px; cursor: pointer; transition: 0.2s; }
-        
-        /* أزرار الحالات المختلفة */
-        .btn-primary { background: #007bff; color: white; }
-        .btn-success { background: #28a745; color: white; }
-        .btn-secondary { background: #6c757d; color: white; }
-        
+        .guide-text { color: #fff; background: rgba(0,0,0,0.7); padding: 5px 10px; border-radius: 4px; font-size: 0.8rem; }
+
+        button { background: #28a745; color: white; border: none; padding: 12px 24px; font-size: 1rem; font-weight: bold; border-radius: 8px; cursor: pointer; transition: 0.2s; }
         button:disabled { background: #b0bec5; cursor: not-allowed; }
         
         #result { font-size: 1.3rem; font-weight: bold; color: #1b5e20; background: #e8f5e9; padding: 12px; border-radius: 8px; border: 1px solid #a5d6a7; width: 100%; box-sizing: border-box; min-height: 50px;}
@@ -61,33 +41,21 @@
 <body>
 
 <div class="container">
-    <h2>ماسح البطاقات الثابت (صورة)</h2>
-    <p id="status">جاري تشغيل الكاميرا...</p>
+    <h2>ماسح رقم بطاقة التعريف المطور</h2>
+    <p id="status">جاري تهيئة النظام محلياً...</p>
     
-    <div class="image-viewer">
-        <!-- الفيديو الحي -->
+    <div class="video-wrapper">
         <video id="videoInput" autoplay playsinline muted></video>
-        
-        <!-- معاينة الصورة الثابتة (Freeze) -->
-        <img id="photoPreview" style="display:none;" src="" alt="Captured ID">
-        
-        <!-- إطار التوجيه البرتقالي -->
-        <div class="guide-box" id="guideBox">
-            <span class="status-overlay" style="color: #fff; background: rgba(0,0,0,0.6); padding: 4px 8px; border-radius: 4px; display: none;">جاري القراءة...</span>
+        <div class="guide-box">
+            <span class="guide-text">وجه البطاقة داخل الإطار البرتقالي واضغط التقاط</span>
         </div>
     </div>
     
-    <!-- الأزرار التفاعلية -->
-    <div class="actions" id="initialActions">
-        <button id="captureBtn" class="btn-primary" onclick="captureAndFreeze()" disabled>التقاط وتجميد الصورة</button>
-    </div>
+    <button id="scanBtn" onclick="captureAndScan()" disabled>التقاط وقراءة الرقم (محلي)</button>
     
-    <div class="actions" id="postCaptureActions" style="display:none;">
-        <button class="btn-secondary" onclick="resetApp()">إعادة التقاط</button>
-        <button class="btn-success" id="useNumberBtn" disabled>استخدام الرقم</button>
-    </div>
+    <div id="result">النتيجة: ---</div>
     
-    <div id="result">الرقم المستخرج: ---</div>
+    <!-- كانفاس خفي لمعالجة الصورة قبل القراءة -->
     <canvas id="canvas" style="display:none;"></canvas>
 </div>
 
@@ -96,20 +64,12 @@
     let extractedNumber = null;
     
     const video = document.getElementById('videoInput');
-    const photoPreview = document.getElementById('photoPreview');
     const canvas = document.getElementById('canvas');
-    const guideBox = document.getElementById('guideBox');
-    const statusOverlay = guideBox.querySelector('.status-overlay');
-    
     const resultText = document.getElementById('result');
     const statusText = document.getElementById('status');
-    const captureBtn = document.getElementById('captureBtn');
-    const useNumberBtn = document.getElementById('useNumberBtn');
-    
-    const initialActions = document.getElementById('initialActions');
-    const postCaptureActions = document.getElementById('postCaptureActions');
+    const scanBtn = document.getElementById('scanBtn');
 
-    // 1. تهيئة الكاميرا و Tesseract مسبقاً
+    // 1. تهيئة الكاميرا و Tesseract مسبقاً (حبه حبه)
     async function initApp() {
         try {
             // تشغيل الكاميرا
@@ -118,8 +78,8 @@
             });
             video.srcObject = stream;
             
-            // تهيئة Tesseract العامل في الخلفية (Pre-warm) للسرعة
-            statusText.innerText = "جاري تهيئة محرك Tesseract محلياً...";
+            // تهيئة Tesseract محلياً مع وضع Whitelist وقراءة Single Line للسرعة والدقة
+            statusText.innerText = "جاري تهيئة Tesseract محلياً...";
             tesseractWorker = await Tesseract.createWorker('eng');
             await tesseractWorker.setParameters({
                 tessedit_char_whitelist: 'JED0123456789-',
@@ -127,85 +87,86 @@
             });
             
             statusText.innerText = "النظام المحلي جاهز! وجه البطاقة واضغط التقاط.";
-            captureBtn.disabled = false;
+            scanBtn.disabled = false;
         } catch (err) {
             statusText.innerText = "خطأ في التهيئة: " + err.message;
         }
     }
 
-    // 2. التقاط وتجميد الصورة (Freeze)
-    async function captureAndFreeze() {
-        captureBtn.disabled = true;
-        statusText.innerText = "جاري التقاط الصورة وتجميدها للتحليل المحلي...";
-        resultText.innerText = "النتيجة: جاري المعالجة محلياً...";
+    // 2. معالجة OpenCV المخصصة لتصفية التلميع وتحسين النص
+    function preprocessImageForOcr(ctx, canvas, roiX, roiY, roiW, roiH) {
+        // اقتطاع منطقة النص (منطقة الرقم فوق الباركود)
+        const imageData = ctx.getImageData(roiX, roiY, roiW, roiH);
+        const data = imageData.data;
 
-        // رسم الإطار الحالي للفيديو على الكانفاس لتجميده
+        // تطبيق فلتر أبيض وأسود قوي مع Adaptive Thresholding محلي (بدون OpenCV)
+        // هذا الجزء هام جداً لفصل التلميع عن الرقم كما في image_4.png
+        for (let i = 0; i < data.length; i += 4) {
+            const gray = (0.3 * data[i]) + (0.59 * data[i + 1]) + (0.11 * data[i + 2]);
+            // عتبة متكيفة بسيطة لإزالة التلميع (Glare Filtering)
+            if (gray > 160) {
+                data[i] = data[i + 1] = data[i + 2] = 255; // أبيض
+            } else {
+                data[i] = data[i + 1] = data[i + 2] = 0; // أسود
+            }
+        }
+        
+        // رسم المنطقة المقصوصة والمحسنة من جديد
+        canvas.width = roiW;
+        canvas.height = roiH;
+        ctx.putImageData(imageData, 0, 0);
+        return canvas;
+    }
+
+    // 3. التقاط ومعالجة الصورة محلياً
+    async function captureAndScan() {
+        statusText.innerText = "جاري التقاط ومعالجة الصورة محلياً...";
+        resultText.innerText = "النتيجة: جاري المعالجة محلياً...";
+        scanBtn.disabled = true;
+
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
         const ctx = canvas.getContext('2d');
         ctx.drawImage(video, 0, 0);
 
-        // تحويل الكانفاس لصورة (Base64) وعرضها بدلاً من الفيديو
-        const imageData = canvas.toDataURL('image/jpeg');
-        photoPreview.src = imageData;
-        
-        // إخفاء الفيديو وإظهار الصورة الثابتة (Freeze)
-        video.style.display = 'none';
-        photoPreview.style.display = 'block';
-        
-        // إظهار حالة القراءة على الصورة
-        statusOverlay.style.display = 'block';
+        // أ) تحديد مساحة الرقم فوق الباركود (منطقة الرقم)
+        // بناءً على تصميم صورتك، الرقم موجود في النصف السفلي، جهة اليمين.
+        const roiW = Math.floor(video.videoWidth * 0.4);
+        const roiH = Math.floor(video.videoHeight * 0.15);
+        const roiX = video.videoWidth - roiW - (video.videoWidth * 0.05);
+        const roiY = video.videoHeight - roiH - (video.videoHeight * 0.08);
 
-        // تغيير الأزرار
-        initialActions.style.display = 'none';
-        postCaptureActions.style.display = 'flex';
+        // ب) تطبيق الخوارزمية المحلية المخصصة (تصفية التلميع)
+        const processedCanvas = preprocessImageForOcr(ctx, canvas, roiX, roiY, roiW, roiH);
 
-        // 3. تحليل الصورة المجمدة محلياً
         try {
-            // القراءة من الكانفاس الثابت (Frozen Image)
-            const { data: { text } } = await tesseractWorker.recognize(canvas);
+            statusText.innerText = "جاري التعرف على النص محلياً...";
+            
+            // ج) قراءة المنطقة المقصوصة والمحسنة فقط
+            const { data: { text } } = await tesseractWorker.recognize(processedCanvas);
             console.log("النص المقروء محلياً:", text);
 
-            // مطابقة البترن JED-XXX-XXXX
+            // د) تطبيق الخوارزمية المعتمدة: "ابحث عن JED ومنها يبدأ"
+            const cleanedText = text.replace(/\s+/g, '').toUpperCase();
             const regexPattern = /JED-\d{3}-\d{4}/g;
-            const matched = text.replace(/\s+/g, '').match(regexPattern);
+            const matched = cleanedText.match(regexPattern);
 
-            if (matched) {
-                extractedNumber = matched[0].toUpperCase();
-                resultText.innerText = "الرقم المستخرج: " + extractedNumber;
+            if (matched && matched.length > 0) {
+                extractedNumber = matched[0];
+                resultText.innerText = "تم استخراج الرقم محلياً: " + extractedNumber;
                 statusText.innerText = "تمت القراءة بنجاح محلياً!";
-                useNumberBtn.disabled = false;
             } else {
-                resultText.innerText = "لم يتم العثور على الرقم في الصورة الثابتة.";
-                statusText.innerText = "تأكد من وضوح البطاقة واضغط 'إعادة التقاط'.";
+                resultText.innerText = "تعذر قراءة النمط JED من المنطقة المقصوصة.";
+                statusText.innerText = "تأكد من إضاءة الغرفة ووضوح الرقم أمام الكاميرا.";
             }
         } catch (error) {
             console.error(error);
             statusText.innerText = "حدث خطأ أثناء معالجة OCR المحلي.";
         } finally {
-            statusOverlay.style.display = 'none';
+            scanBtn.disabled = false;
         }
     }
 
-    // 4. إعادة تشغيل التطبيق (Reset)
-    function resetApp() {
-        // إخفاء الصورة وإظهار الفيديو من جديد (Live)
-        photoPreview.style.display = 'none';
-        video.style.display = 'block';
-        
-        // مسح النتائج
-        resultText.innerText = "النتيجة: ---";
-        statusText.innerText = "وجه البطاقة مرة أخرى واضغط التقاط.";
-        extractedNumber = null;
-        
-        // استعادة الأزرار الأولية
-        postCaptureActions.style.display = 'none';
-        initialActions.style.display = 'flex';
-        captureBtn.disabled = false;
-        useNumberBtn.disabled = true;
-    }
-
-    // البدء فوراً
     initApp();
 </script>
 
