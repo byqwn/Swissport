@@ -2183,13 +2183,18 @@
       document.body.classList.add('modal-open');
       modal.style.display = 'flex';
 
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        statusEl.innerText = '⚠️ This browser does not support camera access here (try Chrome/Safari, and make sure the page is opened over https://).';
+        return;
+      }
+
       try {
         barcodeStream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 960 } },
           audio: false
         });
       } catch (err) {
-        statusEl.innerText = '⚠️ Could not access the camera — check camera permission and try again.';
+        statusEl.innerText = `⚠️ Could not access the camera (${err.name || err.message || err}) — check camera permission for this site and try again.`;
         return;
       }
 
@@ -2200,10 +2205,17 @@
       try {
         readBarcodes = await getZxingReadBarcodes();
       } catch (err) {
-        statusEl.innerText = '⚠️ Barcode engine could not load — check your connection and try again.';
+        statusEl.innerText = `⚠️ Barcode engine could not load (${err && err.message ? err.message : err}) — check your connection and try again.`;
         closeBarcodeScanner();
         return;
       }
+
+      // Visible, live feedback while scanning: the officer (and anyone troubleshooting with
+      // them) can see the loop is actually running and how far it's gotten, instead of a
+      // static message that looks identical whether everything is working or silently stuck.
+      let framesTried = 0;
+      let firstErrorShown = false;
+      statusEl.innerText = '🔍 Camera ready — fill the box with the barcode and hold steady.';
 
       // A guide box tells the officer where to aim, and decoding ONLY that strip (rather than
       // the whole frame) keeps every attempt at a resolution the barcode can actually be read
@@ -2252,8 +2264,15 @@
               return;
             }
           }
+          framesTried++;
+          statusEl.innerText = `🔍 Scanning... (${framesTried} tries, ${vw}×${vh} camera) — fill the box with just the barcode.`;
         } catch (e) {
-          // one failed frame is normal — the next tick just tries again
+          // Surface the FIRST error only, so a persistent underlying problem (rather than one
+          // noisy bad frame) is visible on screen instead of silently retrying forever.
+          if (!firstErrorShown) {
+            firstErrorShown = true;
+            statusEl.innerText = `⚠️ Scan error: ${e && e.message ? e.message : e}`;
+          }
         } finally {
           barcodeScanBusy = false;
         }
