@@ -484,9 +484,22 @@
       border-radius: 10px; overflow: hidden; margin-bottom: 12px;
     }
     .barcode-video-wrap video { width: 100%; height: 100%; object-fit: cover; display: block; }
+    /* Built from four plain rectangles instead of one huge box-shadow spread — several mobile
+       browsers (notably iOS Safari) fail to clip a very large box-shadow to a rounded,
+       overflow:hidden ancestor, letting the "dark everywhere except the box" effect bleed out
+       and black out the status text below the camera. Confirmed against a real iPhone: the
+       shadow-based version made the scan status unreadable; plain rectangles clipped by
+       .barcode-video-wrap's own overflow:hidden can't have that problem. */
+    .barcode-guide-curtain {
+      position: absolute; background: rgba(0, 0, 0, 0.4); pointer-events: none;
+    }
+    .barcode-guide-curtain.top { top: 0; left: 0; right: 0; height: 25%; }
+    .barcode-guide-curtain.bottom { bottom: 0; left: 0; right: 0; height: 25%; }
+    .barcode-guide-curtain.left { top: 25%; bottom: 25%; left: 0; width: 5%; }
+    .barcode-guide-curtain.right { top: 25%; bottom: 25%; right: 0; width: 5%; }
     .barcode-guide-box {
-      position: absolute; left: 8%; right: 8%; top: 40%; height: 20%;
-      border: 3px solid #22c55e; border-radius: 6px; box-shadow: 0 0 0 2000px rgba(0,0,0,0.35);
+      position: absolute; left: 5%; right: 5%; top: 25%; bottom: 25%;
+      border: 3px solid #22c55e; border-radius: 6px;
       pointer-events: none;
     }
     .barcode-scan-status {
@@ -644,6 +657,10 @@
       <h3>▮▮▮ Scan Badge Barcode</h3>
       <div class="barcode-video-wrap">
         <video id="barcodeVideo" playsinline muted></video>
+        <div class="barcode-guide-curtain top"></div>
+        <div class="barcode-guide-curtain bottom"></div>
+        <div class="barcode-guide-curtain left"></div>
+        <div class="barcode-guide-curtain right"></div>
         <div class="barcode-guide-box"></div>
       </div>
       <div class="barcode-scan-status" id="barcodeScanStatus">Point the camera at the barcode strip on the badge.</div>
@@ -2190,7 +2207,12 @@
 
       try {
         barcodeStream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 960 } },
+          // focusMode is ignored (not an error) on browsers that don't support it, but on
+          // ones that do (mainly Android Chrome) it keeps the camera refocusing continuously
+          // instead of locking focus once at open — important here since the officer needs
+          // to move the phone in to find the distance where the barcode is both in focus and
+          // large enough to read.
+          video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 960 }, advanced: [{ focusMode: 'continuous' }] },
           audio: false
         });
       } catch (err) {
@@ -2238,8 +2260,13 @@
         if (!vw || !vh) return;
         barcodeScanBusy = true;
         try {
-          const gx0 = vw * 0.08, gx1 = vw * 0.92;
-          const gy0 = vh * 0.40, gy1 = vh * 0.60;
+          // Matches the visible guide box in the CSS (.barcode-guide-box / curtains) — widened
+          // from the original narrow strip after real-device testing showed officers had to
+          // get uncomfortably close to fill a thin band, right at the point where the phone
+          // camera can no longer focus. A taller, more forgiving box lets the barcode be read
+          // at whatever distance the camera actually focuses at.
+          const gx0 = vw * 0.05, gx1 = vw * 0.95;
+          const gy0 = vh * 0.25, gy1 = vh * 0.75;
           const gw = gx1 - gx0, gh = gy1 - gy0;
           const ctx = scanCanvas.getContext('2d');
 
