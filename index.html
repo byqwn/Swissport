@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ماسح البطاقات المطور (محلي بالكامل)</title>
+    <title>ماسح البطاقات المطور (أسفل اليمين)</title>
     
-    <!-- تحميل Tesseract.js (محلياً بالكامل للخصوصية والسرعة) -->
+    <!-- تحميل Tesseract.js (محلياً بالكامل) -->
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     
     <style>
@@ -14,7 +14,7 @@
         .video-wrapper { position: relative; width: 100%; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.15); background: #000; }
         video { width: 100%; display: block; }
         
-        /* إطار توجيه برتقالي للمحاذاة والتركيز على منطقة النص والباركود */
+        /* إطار توجيه برتقالي للخصوصية والمحاذاة */
         .guide-box {
             position: absolute;
             top: 50%; left: 50%;
@@ -26,37 +26,57 @@
             pointer-events: none;
             display: flex;
             align-items: flex-end;
-            justify-content: center;
-            padding-bottom: 20px;
+            justify-content: flex-end;
+            padding: 10px;
         }
-        .guide-text { color: #fff; background: rgba(0,0,0,0.7); padding: 5px 10px; border-radius: 4px; font-size: 0.8rem; }
+        
+        /* مؤشر صغير يوضح منطقة البحث المستهدفة (أسفل اليمين) */
+        .target-area-indicator {
+            width: 40%;
+            height: 25%;
+            border: 2px solid #00ff00; /* أخضر ساطع */
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0, 255, 0, 0.1);
+        }
+        .target-text { color: #00ff00; font-size: 0.7rem; font-weight: bold; }
 
-        button { background: #28a745; color: white; border: none; padding: 12px 24px; font-size: 1rem; font-weight: bold; border-radius: 8px; cursor: pointer; transition: 0.2s; }
+        button { background: #007bff; color: white; border: none; padding: 14px 24px; font-size: 1.1rem; font-weight: bold; border-radius: 8px; cursor: pointer; transition: 0.2s; width: 100%; }
         button:disabled { background: #b0bec5; cursor: not-allowed; }
         
         #result { font-size: 1.3rem; font-weight: bold; color: #1b5e20; background: #e8f5e9; padding: 12px; border-radius: 8px; border: 1px solid #a5d6a7; width: 100%; box-sizing: border-box; min-height: 50px;}
         #status { color: #555; font-size: 0.9rem; }
+        
+        /* منطقة معاينة خفية (أو ظاهرة للتصحيح) للمنطقة التي تم قصها */
+        #debugCanvas { border: 1px solid #ccc; max-width: 100%; margin-top: 10px; display: none; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h2>ماسح رقم بطاقة التعريف المطور</h2>
+    <h2>ماسح رقم البطاقة (أسفل اليمين)</h2>
     <p id="status">جاري تهيئة النظام محلياً...</p>
     
     <div class="video-wrapper">
         <video id="videoInput" autoplay playsinline muted></video>
         <div class="guide-box">
-            <span class="guide-text">وجه البطاقة داخل الإطار البرتقالي واضغط التقاط</span>
+            <!-- منطقة البحث المستهدفة (أسفل اليمين) -->
+            <div class="target-area-indicator">
+                <span class="target-text">ضع الرقم هنا</span>
+            </div>
         </div>
     </div>
     
-    <button id="scanBtn" onclick="captureAndScan()" disabled>التقاط وقراءة الرقم (محلي)</button>
+    <button id="scanBtn" onclick="captureAndScan()" disabled>التقاط وقراءة الرقم</button>
     
     <div id="result">النتيجة: ---</div>
     
     <!-- كانفاس خفي لمعالجة الصورة قبل القراءة -->
     <canvas id="canvas" style="display:none;"></canvas>
+    <!-- كانفاس لمعاينة المنطقة المقصوصة والمحسنة (للتصحيح) -->
+    <canvas id="debugCanvas"></canvas>
 </div>
 
 <script>
@@ -65,20 +85,20 @@
     
     const video = document.getElementById('videoInput');
     const canvas = document.getElementById('canvas');
+    const debugCanvas = document.getElementById('debugCanvas');
     const resultText = document.getElementById('result');
     const statusText = document.getElementById('status');
     const scanBtn = document.getElementById('scanBtn');
 
-    // 1. تهيئة الكاميرا و Tesseract مسبقاً (حبه حبه)
+    // 1. تهيئة الكاميرا و Tesseract مسبقاً
     async function initApp() {
         try {
-            // تشغيل الكاميرا
             const stream = await navigator.mediaDevices.getUserMedia({ 
                 video: { facingMode: "environment", width: { ideal: 1280 } } 
             });
             video.srcObject = stream;
             
-            // تهيئة Tesseract محلياً مع وضع Whitelist وقراءة Single Line للسرعة والدقة
+            // تهيئة Tesseract محلياً مع Whitelist وقراءة Single Line للسرعة
             statusText.innerText = "جاري تهيئة Tesseract محلياً...";
             tesseractWorker = await Tesseract.createWorker('eng');
             await tesseractWorker.setParameters({
@@ -86,42 +106,46 @@
                 tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE, 
             });
             
-            statusText.innerText = "النظام المحلي جاهز! وجه البطاقة واضغط التقاط.";
+            statusText.innerText = "جاهز! ضع الرقم (أسفل اليمين) في المربع الأخضر واضغط التقاط.";
             scanBtn.disabled = false;
         } catch (err) {
             statusText.innerText = "خطأ في التهيئة: " + err.message;
         }
     }
 
-    // 2. معالجة OpenCV المخصصة لتصفية التلميع وتحسين النص
+    // 2. تصفية التلميع وتحسين النص في المنطقة المقصوصة
     function preprocessImageForOcr(ctx, canvas, roiX, roiY, roiW, roiH) {
-        // اقتطاع منطقة النص (منطقة الرقم فوق الباركود)
+        // اقتطاع منطقة النص
         const imageData = ctx.getImageData(roiX, roiY, roiW, roiH);
         const data = imageData.data;
 
-        // تطبيق فلتر أبيض وأسود قوي مع Adaptive Thresholding محلي (بدون OpenCV)
-        // هذا الجزء هام جداً لفصل التلميع عن الرقم كما في image_4.png
+        // تطبيق فلتر أبيض وأسود قوي مع Adaptive Thresholding بسيط لإزالة التلميع
         for (let i = 0; i < data.length; i += 4) {
             const gray = (0.3 * data[i]) + (0.59 * data[i + 1]) + (0.11 * data[i + 2]);
             // عتبة متكيفة بسيطة لإزالة التلميع (Glare Filtering)
-            if (gray > 160) {
+            // القيم الأقل من 140 ستصبح سوداء، والأعلى ستصبح بيضاء نقيّة.
+            if (gray > 140) {
                 data[i] = data[i + 1] = data[i + 2] = 255; // أبيض
             } else {
                 data[i] = data[i + 1] = data[i + 2] = 0; // أسود
             }
         }
         
-        // رسم المنطقة المقصوصة والمحسنة من جديد
-        canvas.width = roiW;
-        canvas.height = roiH;
-        ctx.putImageData(imageData, 0, 0);
-        return canvas;
+        // رسم المنطقة المقصوصة والمحسنة من جديد على كانفاس المعاينة (debugCanvas)
+        debugCanvas.width = roiW;
+        debugCanvas.height = roiH;
+        debugCanvas.getContext('2d').putImageData(imageData, 0, 0);
+        
+        // يمكن إظهار debugCanvas للتأكد من أن المنطقة المقصوصة واضحة.
+        // debugCanvas.style.display = 'block'; 
+
+        return debugCanvas; // نعود بالكانفاس المحسن جاهزاً للـ OCR
     }
 
     // 3. التقاط ومعالجة الصورة محلياً
     async function captureAndScan() {
         statusText.innerText = "جاري التقاط ومعالجة الصورة محلياً...";
-        resultText.innerText = "النتيجة: جاري المعالجة محلياً...";
+        resultText.innerText = "النتيجة: جاري المعالجة...";
         scanBtn.disabled = true;
 
         canvas.width = video.videoWidth;
@@ -129,14 +153,14 @@
         const ctx = canvas.getContext('2d');
         ctx.drawImage(video, 0, 0);
 
-        // أ) تحديد مساحة الرقم فوق الباركود (منطقة الرقم)
-        // بناءً على تصميم صورتك، الرقم موجود في النصف السفلي، جهة اليمين.
-        const roiW = Math.floor(video.videoWidth * 0.4);
-        const roiH = Math.floor(video.videoHeight * 0.15);
-        const roiX = video.videoWidth - roiW - (video.videoWidth * 0.05);
-        const roiY = video.videoHeight - roiH - (video.videoHeight * 0.08);
+        // أ) تحديد مساحة البحث المستهدفة (أسفل اليمين)
+        // بناءً على ملاحظتك، الرقم والباركود موجودان في الزاوية السفلية اليمنى.
+        const roiW = Math.floor(video.videoWidth * 0.45); // العرض: 45% من عرض الكاميرا
+        const roiH = Math.floor(video.videoHeight * 0.20); // الارتفاع: 20% من ارتفاع الكاميرا
+        const roiX = video.videoWidth - roiW - (video.videoWidth * 0.05); // الإزاحة من اليمين
+        const roiY = video.videoHeight - roiH - (video.videoHeight * 0.05); // الإزاحة من الأسفل
 
-        // ب) تطبيق الخوارزمية المحلية المخصصة (تصفية التلميع)
+        // ب) تطبيق الخوارزمية المحلية المخصصة (تصفية التلميع وتحسين النص)
         const processedCanvas = preprocessImageForOcr(ctx, canvas, roiX, roiY, roiW, roiH);
 
         try {
@@ -153,11 +177,11 @@
 
             if (matched && matched.length > 0) {
                 extractedNumber = matched[0];
-                resultText.innerText = "تم استخراج الرقم محلياً: " + extractedNumber;
+                resultText.innerText = "الرقم المستخرج محلياً: " + extractedNumber;
                 statusText.innerText = "تمت القراءة بنجاح محلياً!";
             } else {
                 resultText.innerText = "تعذر قراءة النمط JED من المنطقة المقصوصة.";
-                statusText.innerText = "تأكد من إضاءة الغرفة ووضوح الرقم أمام الكاميرا.";
+                statusText.innerText = "تأكد من وضع الرقم (أسفل اليمين) في المربع الأخضر ووضوح الإضاءة.";
             }
         } catch (error) {
             console.error(error);
